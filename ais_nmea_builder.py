@@ -141,6 +141,18 @@ def create_signal(signal_type, sample_rate, duration=0.5):
         # Simple carrier wave
         return np.exp(1j * 2 * np.pi * np.arange(num_samples) * 1000 / sample_rate) * 0.5
 
+def create_gmsk_signal(data_bits, sample_rate):
+    """Create a GMSK modulated signal with proper AIS parameters"""
+    # AIS uses 9600 bits/sec
+    bit_rate = 9600.0
+    # GMSK BT product for AIS is 0.4
+    bt = 0.4
+    # Samples per bit
+    samples_per_bit = int(sample_rate / bit_rate)
+    # Generate GMSK modulation
+    # [Implement GMSK modulation here]
+    # ...
+
 ### TRANSMISSION FUNCTIONALITY ###
 # Function to transmit an AIS message or custom signal using LimeSDR Mini
 def transmit_signal(signal_preset, nmea_sentence=None, status_callback=None):
