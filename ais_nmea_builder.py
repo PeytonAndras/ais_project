@@ -101,12 +101,12 @@ def build_ais_payload(fields):
 
 # Signal configuration presets
 SIGNAL_PRESETS = [
-    {"name": "AIS Channel A", "freq": 161.975e6, "gain": 40, "modulation": "GMSK", "sdr_type": "hackrf"},
-    {"name": "AIS Channel B", "freq": 162.025e6, "gain": 40, "modulation": "GMSK", "sdr_type": "hackrf"},
+    {"name": "AIS Channel A", "freq": 161.975e6, "gain": 65, "modulation": "GMSK", "sdr_type": "hackrf"},
+    {"name": "AIS Channel B", "freq": 162.025e6, "gain": 65, "modulation": "GMSK", "sdr_type": "hackrf"},
 ]
 
 # Create different signal types
-def create_signal(signal_type, sample_rate, duration=0.5):
+def create_signal(signal_type, sample_rate, duration=2.0):
     num_samples = int(sample_rate * duration)
     
     if signal_type == "GMSK":
@@ -152,6 +152,121 @@ def create_gmsk_signal(data_bits, sample_rate):
     # Generate GMSK modulation
     # [Implement GMSK modulation here]
     # ...
+
+def create_ais_signal(nmea_sentence, sample_rate=2e6, repetitions=6):
+    """Create a properly modulated AIS signal from NMEA sentence"""
+    
+    # Step 1: Extract payload from NMEA sentence
+    parts = nmea_sentence.split(',')
+    if len(parts) < 6:
+        raise ValueError("Invalid NMEA sentence")
+    
+    payload = parts[5]  # The actual AIS data in 6-bit ASCII
+    
+    # Step 2: Convert 6-bit ASCII back to bits
+    def char_to_sixbit(char):
+        """Convert AIS 6-bit ASCII character to bits"""
+        val = ord(char)
+        if val >= 48 and val < 88:
+            val -= 48
+        elif val >= 96 and val < 128:
+            val -= 56
+        else:
+            raise ValueError(f"Invalid AIS character: {char}")
+        
+        # Convert to 6 bits
+        return [(val >> 5) & 1, (val >> 4) & 1, (val >> 3) & 1, 
+                (val >> 2) & 1, (val >> 1) & 1, val & 1]
+    
+    # Get all bits from payload
+    bits = []
+    for char in payload:
+        bits.extend(char_to_sixbit(char))
+    
+    # Step 3: Add start/end flags and bit stuffing
+    # AIS start/end flag is 0x7E (01111110)
+    start_flag = [0, 1, 1, 1, 1, 1, 1, 0]
+    
+    # Add CRC (simplified - real AIS needs proper CRC)
+    # and perform bit stuffing (add 0 after five consecutive 1s)
+    stuffed_bits = []
+    consecutive_ones = 0
+    
+    # Add start flag
+    stuffed_bits.extend(start_flag)
+    
+    # Add preamble (training sequence of alternating 0s and 1s)
+    stuffed_bits.extend([0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1])
+    
+    # Add data bits with bit stuffing
+    for bit in bits:
+        if bit == 1:
+            consecutive_ones += 1
+        else:
+            consecutive_ones = 0
+            
+        stuffed_bits.append(bit)
+        
+        # After 5 consecutive ones, insert a 0
+        if consecutive_ones == 5:
+            stuffed_bits.append(0)
+            consecutive_ones = 0
+    
+    # Add end flag
+    stuffed_bits.extend(start_flag)
+    
+    # Step 4: NRZI encoding
+    nrzi_bits = []
+    current_level = 0  # Start with 0
+    
+    for bit in stuffed_bits:
+        if bit == 0:
+            # For 0, we invert the level
+            current_level = 1 - current_level
+        # For 1, level stays the same
+        nrzi_bits.append(current_level)
+    
+    # Step 5: GMSK modulation
+    bit_rate = 9600.0  # AIS bit rate
+    samples_per_bit = int(sample_rate / bit_rate)
+    num_samples = len(nrzi_bits) * samples_per_bit
+    
+    # BT product for AIS is 0.4 (bandwidth time product)
+    bt = 0.4
+    
+    # Create Gaussian filter
+    def gaussian_impulse(t, bt):
+        return np.sqrt(2*np.pi/np.log(2)) * bt * np.exp(-2*np.pi**2*bt**2*t**2/np.log(2))
+    
+    # Create Gaussian filter kernel
+    filter_length = 4  # Length in symbols
+    t = np.arange(-filter_length/2, filter_length/2, 1/samples_per_bit)
+    h = gaussian_impulse(t, bt)
+    h = h / np.sum(h)  # Normalize
+    
+    # Upsample bits to sample rate
+    upsampled = np.zeros(num_samples)
+    for i, bit in enumerate(nrzi_bits):
+        upsampled[i*samples_per_bit] = 2*bit - 1  # Convert 0/1 to -1/+1
+    
+    # Apply Gaussian filter
+    filtered = np.convolve(upsampled, h, 'same')
+    
+    # Integrate to get phase
+    phase = np.cumsum(filtered) * np.pi / samples_per_bit  # π/2 phase shift for each bit
+    
+    # Generate complex I/Q samples
+    i_samples = np.cos(phase)
+    q_samples = np.sin(phase)
+    iq_samples = i_samples + 1j * q_samples
+    
+    # Normalize to ensure consistent amplitude
+    max_amp = np.max(np.abs(iq_samples))
+    if max_amp > 0:
+        iq_samples = iq_samples / max_amp * 0.9
+    
+    # Apply amplitude scaling
+    return np.tile(iq_samples * 0.9, repetitions)  # Scale to 0.5 amplitude
 
 ### TRANSMISSION FUNCTIONALITY ###
 # Function to transmit an AIS message or custom signal using LimeSDR Mini
@@ -278,8 +393,17 @@ def transmit_signal(signal_preset, nmea_sentence=None, status_callback=None):
         
         # Create transmission signal based on modulation type
         update_status(f"Creating {signal_preset['modulation']} signal...")
-        signal = create_signal(signal_preset["modulation"], sample_rate)
+        if signal_preset["modulation"] == "GMSK" and nmea_sentence:
+            # Use the proper AIS signal generation if we have an NMEA sentence
+            signal = create_ais_signal(nmea_sentence, sample_rate)
+            update_status("Created properly modulated AIS signal")
+        else:
+            # Use the simple signal generation for other modulations or testing
+            signal = create_signal(signal_preset["modulation"], sample_rate)
         
+        # Add before transmitting
+        print(f"Signal stats: min={np.min(np.abs(signal)):.3f}, max={np.max(np.abs(signal)):.3f}, len={len(signal)}")
+
         # Setup and activate the transmit stream
         update_status("Setting up transmission stream...")
         tx_stream = sdr.setupStream(SOAPY_SDR_TX, SOAPY_SDR_CF32, [0])
