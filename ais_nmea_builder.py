@@ -5,7 +5,7 @@ import time
 import threading
 
 ### SoapySDR and LimeSDR inintialization ###
-# Try to import SoapySDR for LimeSDR functionality
+# Try to import SoapySDR for HackRF functionality
 # If not available, disable transmission functionality
 try:
     import SoapySDR
@@ -19,10 +19,10 @@ try:
     except ImportError:
         print("Using manually defined SDR constants")
     print("SDR constants defined")
-    LIME_SDR_AVAILABLE = True
+    SDR_AVAILABLE = True
 except ImportError as e:
     print(f"SoapySDR import error: {e}")
-    LIME_SDR_AVAILABLE = False
+    SDR_AVAILABLE = False
 
 ### AIS payload generation ###
 # AIS 6-bit ASCII conversion
@@ -101,8 +101,8 @@ def build_ais_payload(fields):
 
 # Signal configuration presets
 SIGNAL_PRESETS = [
-    {"name": "AIS Channel A", "freq": 161.975e6, "gain": 60, "modulation": "GMSK"},
-    {"name": "AIS Channel B", "freq": 162.025e6, "gain": 60, "modulation": "GMSK"},
+    {"name": "AIS Channel A", "freq": 161.975e6, "gain": 40, "modulation": "GMSK", "sdr_type": "hackrf"},
+    {"name": "AIS Channel B", "freq": 162.025e6, "gain": 40, "modulation": "GMSK", "sdr_type": "hackrf"},
 ]
 
 # Create different signal types
@@ -144,7 +144,7 @@ def create_signal(signal_type, sample_rate, duration=0.5):
 ### TRANSMISSION FUNCTIONALITY ###
 # Function to transmit an AIS message or custom signal using LimeSDR Mini
 def transmit_signal(signal_preset, nmea_sentence=None, status_callback=None):
-    if not LIME_SDR_AVAILABLE:
+    if not SDR_AVAILABLE:
         message = "SoapySDR module not available. Install with: pip install soapysdr"
         if status_callback:
             status_callback(message)
@@ -160,88 +160,109 @@ def transmit_signal(signal_preset, nmea_sentence=None, status_callback=None):
     try:
         update_status(f"Preparing to transmit {signal_preset['name']}...")
         
-        # First enumerate available devices to get specific details
+        # Find available SDR devices
         try:
-            available_devices = SoapySDR.Device.enumerate()
-        except AttributeError:
-            # Try the alternative API for older versions
+            # Try multiple device types
+            devices = []
+            
+            # Try HackRF
             try:
-                available_devices = SoapySDR.listDevices()
-                update_status("Using legacy SoapySDR API")
+                hackrf_devices = SoapySDR.Device.enumerate({'driver': 'hackrf'})
+                if hackrf_devices:
+                    devices = hackrf_devices
+                    update_status(f"Found {len(hackrf_devices)} HackRF device(s)")
             except:
-                raise RuntimeError("Could not enumerate SoapySDR devices")
-                
-        if not available_devices:
-            update_status("No SoapySDR devices found")
-            return
+                update_status("No HackRF devices found, trying LimeSDR...")
             
-        update_status(f"Found {len(available_devices)} device(s)")
+            # Try LimeSDR if no HackRF
+            if not devices:
+                try:
+                    lime_devices = SoapySDR.Device.enumerate({'driver': 'lime'})
+                    if lime_devices:
+                        devices = lime_devices
+                        update_status(f"Found {len(lime_devices)} LimeSDR device(s)")
+                except:
+                    update_status("No LimeSDR devices found...")
+            
+            # Try generic enumeration as last resort
+            if not devices:
+                devices = SoapySDR.Device.enumerate()
+                update_status(f"Found {len(devices)} SDR device(s) with generic search")
+            
+            if not devices:
+                raise RuntimeError("No SDR devices found. Connect a HackRF or LimeSDR.")
         
-        # Try different initialization approaches
-        sdr = None
-        error_msgs = []
-        
-        # Approach 1: Try with device arguments
-        try:
-            serial = available_devices[0].get('serial', '')
-            if serial:
-                args = f"driver=lime,serial={serial}"
-            else:
-                args = "driver=lime"
-            update_status(f"Attempting connection with args: {args}")
-            try:
-                sdr = SoapySDR.Device(args)
-            except AttributeError:
-                # Try alternative API
-                sdr = SoapySDR.makeDevice(args)
-            update_status("Connection successful with device args")
         except Exception as e:
-            error_msgs.append(f"Approach 1 failed: {str(e)}")
-            
-        # Approach 2: Try with enumeration result directly
-        if sdr is None:
-            try:
-                update_status("Trying direct enumeration approach")
-                try:
-                    sdr = SoapySDR.Device(available_devices[0])
-                except AttributeError:
-                    # Try alternative API
-                    sdr = SoapySDR.makeDevice(available_devices[0])
-                update_status("Connection successful with enumeration result")
-            except Exception as e:
-                error_msgs.append(f"Approach 2 failed: {str(e)}")
+            update_status(f"Error finding SDR: {str(e)}")
+            raise
         
-        # Approach 3: Try with simple driver specification (last resort)
-        if sdr is None:
-            try:
-                update_status("Trying simple driver approach")
-                try:
-                    sdr = SoapySDR.Device(dict(driver="lime"))
-                except AttributeError:
-                    # Try alternative API
-                    sdr = SoapySDR.makeDevice(dict(driver="lime"))
-                update_status("Connection successful with simple driver")
-            except Exception as e:
-                error_msgs.append(f"Approach 3 failed: {str(e)}")
-        
-        # If all approaches failed
-        if sdr is None:
-            raise RuntimeError(f"Could not connect to LimeSDR. Errors: {'; '.join(error_msgs)}")
-        
-        # Configure LimeSDR parameters for transmission
-        center_freq = signal_preset["freq"]
-        sample_rate = 2e6        # 2 MHz sample rate
-        gain = signal_preset["gain"]
-        
-        update_status(f"Configuring transmission parameters: {center_freq/1e6} MHz, Gain: {gain}...")
-        # Configure transmission parameters with error checking
+        # Initialize the HackRF
         try:
+            # Try different initialization methods
+            try:
+                sdr = SoapySDR.Device(devices[0])
+            except AttributeError:
+                # Fall back to makeDevice for older versions
+                sdr = SoapySDR.makeDevice(devices[0])
+            update_status("HackRF initialized successfully")
+        except Exception as e:
+            update_status(f"Failed to initialize HackRF: {str(e)}")
+            # Try generic driver approach
+            try:
+                sdr = SoapySDR.Device({'driver': 'hackrf'})
+            except AttributeError:
+                sdr = SoapySDR.makeDevice({'driver': 'hackrf'})
+            update_status("HackRF initialized with generic driver")
+        
+        # Configure HackRF parameters for transmission
+        center_freq = signal_preset["freq"]
+        sample_rate = 2e6  # 2 MHz sample rate (HackRF supports 8-20 MHz, but we'll use 2MHz for compatibility)
+        tx_gain = signal_preset["gain"]
+        
+        update_status(f"Configuring transmission parameters: {center_freq/1e6} MHz, Gain: {tx_gain} dB...")
+        
+        # HackRF gain settings are different than LimeSDR
+        # HackRF has separate RF amplifier, IF gain, and baseband gain settings
+        try:
+            # Set sample rate
             sdr.setSampleRate(SOAPY_SDR_TX, 0, sample_rate)
+            
+            # Set frequency
             sdr.setFrequency(SOAPY_SDR_TX, 0, center_freq)
-            sdr.setGain(SOAPY_SDR_TX, 0, gain)
+            
+            # HackRF gain handling - different approach
+            try:
+                # First approach: Try to list gain names
+                gain_names = sdr.listGains(SOAPY_SDR_TX, 0)
+                print(f"Available gain elements: {gain_names}")
+                
+                # Try to set individual gains if available
+                if 'AMP' in gain_names:
+                    amp_value = 14 if tx_gain > 30 else 0
+                    sdr.setGain(SOAPY_SDR_TX, 0, 'AMP', amp_value)
+                    print(f"Set AMP gain to {amp_value}")
+                    
+                if 'VGA' in gain_names:
+                    vga_value = min(47, max(0, tx_gain))
+                    sdr.setGain(SOAPY_SDR_TX, 0, 'VGA', vga_value)
+                    print(f"Set VGA gain to {vga_value}")
+                    
+            except Exception as e:
+                # Fallback: Just set overall gain
+                print(f"Could not set individual gains: {e}")
+                print("Using overall gain setting instead")
+                sdr.setGain(SOAPY_SDR_TX, 0, tx_gain)
+                print(f"Set overall gain to {tx_gain}")
+            
+            # Set bandwidth if available (HackRF supports this)
+            try:
+                sdr.setBandwidth(SOAPY_SDR_TX, 0, 1.75e6)  # 1.75 MHz bandwidth
+            except Exception as bw_e:
+                update_status(f"Note: Cannot set bandwidth ({str(bw_e)}), continuing anyway")
+            
             update_status("Parameters set successfully")
         except Exception as param_error:
-            raise RuntimeError(f"Failed to configure device parameters: {str(param_error)}")
+            raise RuntimeError(f"Failed to configure HackRF parameters: {str(param_error)}")
         
         # Create transmission signal based on modulation type
         update_status(f"Creating {signal_preset['modulation']} signal...")
@@ -257,11 +278,19 @@ def transmit_signal(signal_preset, nmea_sentence=None, status_callback=None):
         status = sdr.writeStream(tx_stream, [signal], len(signal))
         update_status(f"Transmission status: {status}")
         
-        # Cleanup
+        # HackRF devices need explicit cleanup
         update_status("Cleaning up...")
-        time.sleep(0.5)  # Allow time for transmission
+        
+        # Important: HackRF may need more time to finish
+        time.sleep(1.0)  # Increased from 0.5 to 1.0 second
+        
+        # Proper cleanup sequence
         sdr.deactivateStream(tx_stream)
         sdr.closeStream(tx_stream)
+        
+        # Force Python garbage collection to properly release the device
+        del sdr
+        time.sleep(0.5)  # Give system time to release device
         
         update_status(f"Successfully transmitted {signal_preset['name']} on {center_freq/1e6} MHz")
         return True
@@ -269,17 +298,16 @@ def transmit_signal(signal_preset, nmea_sentence=None, status_callback=None):
         error_msg = f"Transmission Error: {str(e)}"
         update_status(error_msg)
         
-        # Suggest recovery steps
+        # Suggest recovery steps for HackRF
         recovery_msg = """
 Try these recovery steps:
-1. Unplug the LimeSDR and wait 10 seconds
+1. Unplug the HackRF and wait 10 seconds
 2. Plug it back into a different USB port
 3. Run these commands in the terminal:
-   LimeUtil --find
-   LimeUtil --update
+   hackrf_info
+   hackrf_transfer -R   (This resets the device)
 
 If problems persist, try restarting your computer.
-or check virtual enviroment settings.
 """
         update_status(recovery_msg)
         return False
@@ -627,7 +655,7 @@ edit_btn.grid(column=0, row=7, sticky=tk.W, pady=5)
 # Transmit button (disabled if LimeSDR not available)
 tx_btn = ttk.Button(output_frame, text="Transmit Message", command=transmit)
 tx_btn.grid(column=0, row=8, sticky=(tk.W, tk.E), pady=10)
-if not LIME_SDR_AVAILABLE:
+if not SDR_AVAILABLE:
     tx_btn.config(state="disabled")  # Disable if SDR library not available
 
 # Tab 2: Transmission Log
@@ -641,7 +669,7 @@ log_text.configure(state='disabled')  # Make it read-only
 
 # Status bar at the bottom
 status_var = tk.StringVar()
-status_var.set("Ready" if LIME_SDR_AVAILABLE else "LimeSDR support not available")
+status_var.set("Ready" if SDR_AVAILABLE else "LimeSDR support not available")
 status_bar = ttk.Label(main_frame, textvariable=status_var, relief=tk.SUNKEN, anchor=tk.W)
 status_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
@@ -684,7 +712,7 @@ test_btn.pack(side=tk.LEFT, padx=5)
 # Transmit all selected signals button
 multi_tx_btn = ttk.Button(control_frame, text="Transmit Selected Signals", command=transmit_multiple_signals)
 multi_tx_btn.pack(side=tk.LEFT, padx=5)
-if not LIME_SDR_AVAILABLE:
+if not SDR_AVAILABLE:
     test_btn.config(state="disabled")
     multi_tx_btn.config(state="disabled")
 
