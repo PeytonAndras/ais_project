@@ -70,8 +70,11 @@ def build_ais_payload(fields):
     add(fields['accuracy'], 1)
     
     # Longitude: 1/10000 minute, two's complement 28 bits
-    lon = int(fields['lon'] * 600000) & ((1 << 28) - 1)  # Convert to 1/10000 minute
-    add(lon, 28)
+    lon_minutes = fields['lon'] * 60  # Convert to minutes
+    lon_value = int(lon_minutes * 10000)  # Convert to 1/10000 minute
+    if lon_value < 0:
+        lon_value = (1 << 28) + lon_value  # Proper two's complement for negative values
+    add(lon_value & ((1 << 28) - 1), 28)
     
     # Latitude: 1/10000 minute, two's complement 27 bits
     lat = int(fields['lat'] * 600000) & ((1 << 27) - 1)
@@ -82,7 +85,12 @@ def build_ais_payload(fields):
     add(cog, 12)
     
     # True heading (0-359, 511=N/A)
-    add(fields['hdg'] & 0x1FF, 9)  # 9 bits
+    # Add checking for special values
+    # For example:
+    if fields['hdg'] == -1:  # -1 used to indicate "not available"
+        add(511, 9)  # 511 = HDG not available
+    else:
+        add(fields['hdg'] & 0x1FF, 9)
     
     # Timestamp (UTC second, 0-59)
     add(fields['timestamp'] & 0x3F, 6)  # 6 bits
@@ -473,7 +481,9 @@ def generate():
         fill_var.set(str(fill))
         
         # Assemble complete NMEA sentence
-        sentence = f"AIVDM,1,1,,A,{payload},{fill}"  # AIVDM = AIS from vessel to shore
+        # Allow channel selection or alternation
+        channel = 'A'  # Could be selectable in the UI or alternate
+        sentence = f"AIVDM,1,1,,{channel},{payload},{fill}"
         cs = compute_checksum(sentence)
         full_sentence = f"!{sentence}*{cs}"  # Add start character and checksum
         nmea_var.set(full_sentence)
