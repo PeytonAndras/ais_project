@@ -81,7 +81,7 @@
   },
   {
     "name": "Vessel 1",
-    "mmsi": 366000001,
+    "mmsi": 123456789,
     "ship_type": 70,
     "length": 100.0,
     "beam": 20.0,
@@ -93,6 +93,6 @@
     "turn": 0,
     "destination": "NEW YORK",
     "accuracy": 1,
-    "heading": 90.0
+    "heading": 90
   }
 ]
