@@ -157,11 +157,14 @@ def create_ais_signal(nmea_sentence, sample_rate=2e6, repetitions=6):
         raise ValueError("Invalid NMEA sentence")
     
     payload = parts[5]
+    print(f"Creating AIS signal from payload: {payload}")
     
     # Convert 6-bit ASCII to bits
     bits = []
     for char in payload:
-        bits.extend(char_to_sixbit(char))
+        char_bits = char_to_sixbit(char)
+        bits.extend(char_bits)
+        print(f"Character '{char}' encoded as: {char_bits}")
     
     # Create HDLC frame with flags and bit stuffing
     start_flag = [0, 1, 1, 1, 1, 1, 1, 0]
@@ -174,8 +177,11 @@ def create_ais_signal(nmea_sentence, sample_rate=2e6, repetitions=6):
     # Training sequence
     stuffed_bits.extend([0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1])
     
+    # Log bit stuffing process
+    print(f"Original bits length: {len(bits)}")
+    
     # Add data bits with bit stuffing
-    for bit in bits:
+    for i, bit in enumerate(bits):
         if bit == 1:
             consecutive_ones += 1
         else:
@@ -187,9 +193,12 @@ def create_ais_signal(nmea_sentence, sample_rate=2e6, repetitions=6):
         if consecutive_ones == 5:
             stuffed_bits.append(0)
             consecutive_ones = 0
+            print(f"Bit stuffing: Added zero after position {i}")
     
     # End flag
     stuffed_bits.extend(start_flag)
+    
+    print(f"After bit stuffing: length={len(stuffed_bits)}")
     
     # NRZI encoding
     nrzi_bits = []
@@ -389,6 +398,29 @@ def transmit_signal(signal_preset, nmea_sentence=None, status_callback=None):
             status_callback(msg)
     
     try:
+        # Add detailed logging of the exact message being transmitted
+        if nmea_sentence:
+            update_status("=" * 50)
+            update_status(f"TRANSMITTING EXACT SENTENCE: {nmea_sentence}")
+            
+            # Log binary representation too
+            if "AIVDM" in nmea_sentence:
+                parts = nmea_sentence.split(',')
+                if len(parts) >= 6:
+                    payload = parts[5]
+                    update_status(f"Payload: {payload}")
+                    
+                    # Show each character and its 6-bit representation
+                    bits_log = "Bit representation: "
+                    for char in payload:
+                        try:
+                            bits = char_to_sixbit(char)
+                            bits_log += f"[{char}:{bits}] "
+                        except ValueError as e:
+                            bits_log += f"[{char}:ERROR] "
+                    update_status(bits_log)
+            update_status("=" * 50)
+        
         update_status(f"Preparing to transmit {signal_preset['name']}...")
         
         # Find SDR devices
@@ -1380,3 +1412,18 @@ update_ship_listbox()
 
 # Start the GUI
 root.mainloop()
+
+
+def calculate_crc(bits):
+    """Calculate CRC-16-CCITT for AIS message"""
+    poly = 0x1021
+    crc = 0xFFFF
+    
+    for bit in bits:
+        crc ^= (bit << 15)
+        for _ in range(8):
+            crc = (crc << 1) ^ poly if crc & 0x8000 else crc << 1
+        crc &= 0xFFFF
+        
+    # Return 16-bit CRC as list of bits
+    return [(crc >> i) & 1 for i in range(15, -1, -1)]
