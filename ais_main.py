@@ -1,14 +1,19 @@
+#!/usr/bin/env python3
+"""
+AIS NMEA Generator & Transmitter
+- Generate AIS messages with proper encoding
+- Transmit using HackRF or other SoapySDR devices
+- Simulate vessel movements with AIS position reporting
+"""
 import tkinter as tk          
 from tkinter import ttk, messagebox, scrolledtext
 import numpy as np            
 import time
 import threading
-import queue
-import random
-import math
 import json
 import os
 from datetime import datetime, timedelta
+import math
 
 ### SDR CONFIGURATION ###
 try:
@@ -118,51 +123,17 @@ SIGNAL_PRESETS = [
     {"name": "AIS Channel B", "freq": 162.025e6, "gain": 65, "modulation": "GMSK", "sdr_type": "hackrf"},
 ]
 
-def create_signal(signal_type, sample_rate, duration=2.0):
-    """Create various signal types for transmission"""
-    num_samples = int(sample_rate * duration)
-    t = np.arange(num_samples) / sample_rate
-    
-    if signal_type == "GMSK":
-        # Simple carrier
-        return np.exp(1j * 2 * np.pi * np.arange(num_samples) * 1000 / sample_rate) * 0.5
-    
-    elif signal_type == "FM":
-        # Simple FM modulation
-        modulation = np.sin(2 * np.pi * 1000 * t) 
-        phase = 0.5 * np.cumsum(modulation) / sample_rate
-        return 0.5 * np.exp(1j * 2 * np.pi * (1000 * t + phase))
-    
-    elif signal_type == "FSK":
-        # 2-level FSK
-        bits = np.round(np.random.rand(num_samples // 1000)).repeat(1000)
-        freq_shift = bits * 100  # 100Hz shift
-        return 0.5 * np.exp(1j * 2 * np.pi * (1000 + freq_shift) * t)
-    
-    elif signal_type == "BFSK":
-        # Binary FSK (NAVTEX)
-        bits = np.round(np.random.rand(num_samples // 2000)).repeat(2000)
-        freq_shift = bits * 170  # 170Hz shift
-        return 0.5 * np.exp(1j * 2 * np.pi * (100 + freq_shift) * t)
-    
-    else:
-        # Simple carrier wave
-        return np.exp(1j * 2 * np.pi * np.arange(num_samples) * 1000 / sample_rate) * 0.5
-
-
-# Move this function to the top of your file, after imports and before any other functions
 def calculate_crc(bits):
-    """Calculate CRC-16-CCITT for AIS message"""
+    """Calculate CRC-16-CCITT for AIS message correctly at bit level"""
     poly = 0x1021
     crc = 0xFFFF
     
     for bit in bits:
+        # Correctly process one bit at a time
         crc ^= (bit << 15)
-        for _ in range(8):
-            crc = (crc << 1) ^ poly if crc & 0x8000 else crc << 1
+        crc = (crc << 1) ^ poly if crc & 0x8000 else crc << 1
         crc &= 0xFFFF
-        
-    # Return 16-bit CRC as list of bits
+    
     return [(crc >> i) & 1 for i in range(15, -1, -1)]
 
 def create_ais_signal(nmea_sentence, sample_rate=2e6, repetitions=6):
@@ -181,7 +152,7 @@ def create_ais_signal(nmea_sentence, sample_rate=2e6, repetitions=6):
         char_bits = char_to_sixbit(char)
         bits.extend(char_bits)
     
-    # Calculate and append CRC - ADD THIS!
+    # Calculate and append CRC
     crc_bits = calculate_crc(bits)
     bits.extend(crc_bits)
     print(f"Added CRC bits: {crc_bits}")
@@ -222,7 +193,8 @@ def create_ais_signal(nmea_sentence, sample_rate=2e6, repetitions=6):
     
     # NRZI encoding
     nrzi_bits = []
-    current_level = 0
+    # Initialize with last bit of training sequence for better sync
+    current_level = stuffed_bits[24] if len(stuffed_bits) > 24 else 0
     
     for bit in stuffed_bits:
         if bit == 0:
@@ -234,8 +206,8 @@ def create_ais_signal(nmea_sentence, sample_rate=2e6, repetitions=6):
     samples_per_bit = int(sample_rate / bit_rate)
     num_samples = len(nrzi_bits) * samples_per_bit
     
-    # Create Gaussian filter
-    bt = 0.4  # AIS BT product
+    # Create Gaussian filter with proper BT product
+    bt = 0.4  # AIS BT product (standard value)
     filter_length = 4
     t = np.arange(-filter_length/2, filter_length/2, 1/samples_per_bit)
     h = np.sqrt(2*np.pi/np.log(2)) * bt * np.exp(-2*np.pi**2*bt**2*t**2/np.log(2))
@@ -256,6 +228,10 @@ def create_ais_signal(nmea_sentence, sample_rate=2e6, repetitions=6):
     i_samples = np.cos(phase)
     q_samples = np.sin(phase)
     iq_samples = i_samples + 1j * q_samples
+    
+    # Add pre-emphasis for better reception
+    emphasis = np.exp(-1j * np.pi * 0.25)
+    iq_samples *= emphasis
     
     # Normalize and scale
     max_amp = np.max(np.abs(iq_samples))
@@ -531,8 +507,8 @@ def transmit_signal(signal_preset, nmea_sentence=None, status_callback=None):
             signal = create_ais_signal(nmea_sentence, sample_rate)
             update_status("Created AIS signal with GMSK modulation")
         else:
-            signal = create_signal(signal_preset["modulation"], sample_rate)
-            update_status("Created test signal")
+            update_status("Error: No valid signal to transmit")
+            return False
         
         # Debug signal stats
         print(f"Signal stats: min={np.min(np.abs(signal)):.3f}, max={np.max(np.abs(signal)):.3f}, len={len(signal)}")
@@ -639,32 +615,193 @@ def run_ship_simulation(signal_preset, interval=10, update_status_callback=None)
         ship_simulation_active = False
         update_status("Ship simulation stopped")
 
-### GUI FUNCTIONS ###
-# Transmission queue for multiple signals
-transmission_queue = queue.Queue()
-is_transmitting = False
-
-def transmission_worker():
-    """Background worker to process transmission queue"""
-    global is_transmitting
-    is_transmitting = True
+def update_ship_listbox():
+    """Update the ship listbox with current configurations"""
+    ship_listbox.delete(0, tk.END)
     
-    while not transmission_queue.empty():
-        job = transmission_queue.get()
-        signal_preset, nmea_sentence, update_log = job
-        
-        try:
-            transmit_signal(signal_preset, nmea_sentence, update_log)
-            time.sleep(0.5)
-        except Exception as e:
-            if update_log:
-                update_log(f"Error in transmission queue: {str(e)}")
-            print(f"Transmission worker error: {str(e)}")
-        finally:
-            transmission_queue.task_done()
-    
-    is_transmitting = False
+    for i, ship in enumerate(SHIP_CONFIGS):
+        ship_listbox.insert(i, f"{ship.name} (MMSI: {ship.mmsi}) - {ship.speed} kts, {ship.course}°")
 
+### GUI SETUP ###
+# Create main window
+root = tk.Tk()
+root.title("AIS NMEA Generator & Transmitter")
+root.minsize(800, 600)
+
+# Main frame
+main_frame = ttk.Frame(root, padding=10)
+main_frame.pack(fill=tk.BOTH, expand=True)
+
+# Create tabbed interface
+notebook = ttk.Notebook(main_frame)
+notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+# ----- Tab 1: AIS Message Generator -----
+ais_frame = ttk.Frame(notebook, padding=10)
+notebook.add(ais_frame, text="AIS Generator")
+
+# Left side - Input parameters
+input_frame = ttk.LabelFrame(ais_frame, text="Message Parameters", padding=10)
+input_frame.grid(row=0, column=0, sticky=(tk.N, tk.W, tk.E, tk.S), padx=5, pady=5)
+
+# Create input fields
+labels = ["Message Type", "Repeat", "MMSI", "Nav Status",
+          "ROT (-127..127)", "SOG (knots)", "Accuracy (0/1)",
+          "Longitude (°)", "Latitude (°)", "COG (°)",
+          "Heading (°)", "Timestamp (s)"]
+vars_ = []
+for i, lbl in enumerate(labels):
+    ttk.Label(input_frame, text=lbl).grid(column=0, row=i, sticky=tk.W, padx=5, pady=2)
+    var = tk.StringVar(value="0")
+    entry = ttk.Entry(input_frame, textvariable=var, width=15)
+    entry.grid(column=1, row=i, sticky=tk.W, padx=5, pady=2)
+    vars_.append(var)
+
+# Assign variables
+(msg_type_var, repeat_var, mmsi_var, nav_status_var,
+ rot_var, sog_var, acc_var, lon_var,
+ lat_var, cog_var, hdg_var, ts_var) = vars_
+
+# Default values
+msg_type_var.set("1")
+repeat_var.set("0")
+mmsi_var.set("366123456")
+nav_status_var.set("0")
+lon_var.set("-74.0060")
+lat_var.set("40.7128")
+sog_var.set("10.0")
+cog_var.set("90.0")
+
+# Generate button
+gen_btn = ttk.Button(input_frame, text="Generate Message", command=lambda: generate())
+gen_btn.grid(column=0, row=len(labels)+1, columnspan=2, pady=10)
+
+# Right side - Output
+output_frame = ttk.LabelFrame(ais_frame, text="Message Output", padding=10)
+output_frame.grid(row=0, column=1, sticky=(tk.N, tk.W, tk.E, tk.S), padx=5, pady=5)
+
+# Output fields
+ttk.Label(output_frame, text="AIS Payload:").grid(column=0, row=0, sticky=tk.W, pady=5)
+payload_var = tk.StringVar()
+ttk.Entry(output_frame, textvariable=payload_var, width=40).grid(column=0, row=1, sticky=(tk.W, tk.E))
+
+ttk.Label(output_frame, text="Fill Bits:").grid(column=0, row=2, sticky=tk.W, pady=5)
+fill_var = tk.StringVar()
+ttk.Entry(output_frame, textvariable=fill_var, width=5).grid(column=0, row=3, sticky=tk.W)
+
+ttk.Label(output_frame, text="NMEA Sentence:").grid(column=0, row=4, sticky=tk.W, pady=5)
+nmea_var = tk.StringVar()
+ttk.Entry(output_frame, textvariable=nmea_var, width=60).grid(column=0, row=5, sticky=(tk.W, tk.E))
+
+# Signal selection
+signal_frame = ttk.LabelFrame(output_frame, text="Transmission Signal", padding=10)
+signal_frame.grid(column=0, row=6, sticky=(tk.W, tk.E), pady=10)
+
+# Listbox for signal selection
+signal_listbox = tk.Listbox(signal_frame, height=5)
+signal_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+# Add scroll bar
+scrollbar = ttk.Scrollbar(signal_frame, orient="vertical", command=signal_listbox.yview)
+scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+signal_listbox.configure(yscrollcommand=scrollbar.set)
+
+# Populate the signal listbox
+for i, preset in enumerate(SIGNAL_PRESETS):
+    signal_listbox.insert(i, f"{preset['name']} ({preset['freq']/1e6} MHz)")
+signal_listbox.selection_set(0)
+
+# Edit signal button
+edit_btn = ttk.Button(output_frame, text="Edit Signal Settings", command=lambda: edit_signal_preset())
+edit_btn.grid(column=0, row=7, sticky=tk.W, pady=5)
+
+# Transmit button
+tx_btn = ttk.Button(output_frame, text="Transmit Message", command=lambda: transmit())
+tx_btn.grid(column=0, row=8, sticky=(tk.W, tk.E), pady=10)
+if not SDR_AVAILABLE:
+    tx_btn.config(state="disabled")
+
+# ----- Tab 2: Transmission Log -----
+log_frame = ttk.Frame(notebook, padding=10)
+notebook.add(log_frame, text="Transmission Log")
+
+# Text area for logs
+log_text = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, width=80, height=20)
+log_text.pack(fill=tk.BOTH, expand=True)
+log_text.configure(state='disabled')
+
+# ----- Tab 3: Ship Simulation -----
+sim_frame = ttk.Frame(notebook, padding=10)
+notebook.add(sim_frame, text="Ship Simulation")
+
+# Left side - Ship list
+ship_list_frame = ttk.LabelFrame(sim_frame, text="Ships", padding=10)
+ship_list_frame.grid(row=0, column=0, sticky=(tk.N, tk.W, tk.E, tk.S), padx=5, pady=5)
+
+# Ship selection listbox
+ship_listbox = tk.Listbox(ship_list_frame, height=15, selectmode=tk.MULTIPLE)
+ship_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+# Add scroll bar
+ship_scrollbar = ttk.Scrollbar(ship_list_frame, orient="vertical", command=ship_listbox.yview)
+ship_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+ship_listbox.configure(yscrollcommand=ship_scrollbar.set)
+
+# Ship control buttons
+ship_control_frame = ttk.Frame(ship_list_frame)
+ship_control_frame.pack(fill=tk.X, pady=10)
+
+# Add/Edit/Delete buttons
+add_ship_btn = ttk.Button(ship_control_frame, text="Add Ship", command=lambda: add_new_ship())
+add_ship_btn.pack(side=tk.LEFT, padx=5)
+
+edit_ship_btn = ttk.Button(ship_control_frame, text="Edit Ship", command=lambda: edit_selected_ship())
+edit_ship_btn.pack(side=tk.LEFT, padx=5)
+
+delete_ship_btn = ttk.Button(ship_control_frame, text="Delete Ship", command=lambda: delete_selected_ships())
+delete_ship_btn.pack(side=tk.LEFT, padx=5)
+
+# Right side - Simulation controls
+sim_control_frame = ttk.LabelFrame(sim_frame, text="Simulation Controls", padding=10)
+sim_control_frame.grid(row=0, column=1, sticky=(tk.N, tk.W, tk.E, tk.S), padx=5, pady=5)
+
+# Channel selection
+ttk.Label(sim_control_frame, text="AIS Channel:").grid(row=0, column=0, sticky=tk.W, pady=5)
+sim_channel_var = tk.StringVar(value="0")
+ttk.Combobox(sim_control_frame, textvariable=sim_channel_var, 
+             values=["0", "1"]).grid(row=0, column=1, sticky=(tk.W, tk.E), pady=5)
+
+# Interval setting
+ttk.Label(sim_control_frame, text="Interval (seconds):").grid(row=1, column=0, sticky=tk.W, pady=5)
+sim_interval_var = tk.StringVar(value="10")
+ttk.Entry(sim_control_frame, textvariable=sim_interval_var, width=5).grid(row=1, column=1, sticky=(tk.W, tk.E))
+
+# Start/Stop buttons
+start_sim_btn = ttk.Button(sim_control_frame, text="Start Simulation", command=lambda: start_ship_simulation())
+start_sim_btn.grid(row=2, column=0, columnspan=2, pady=10)
+
+stop_sim_btn = ttk.Button(sim_control_frame, text="Stop Simulation", command=lambda: stop_ship_simulation())
+stop_sim_btn.grid(row=3, column=0, columnspan=2, pady=10)
+stop_sim_btn.config(state=tk.DISABLED)
+
+# Simulation log
+sim_log_frame = ttk.LabelFrame(sim_control_frame, text="Simulation Log", padding=10)
+sim_log_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=10)
+
+sim_log_text = scrolledtext.ScrolledText(sim_log_frame, wrap=tk.WORD, width=40, height=10)
+sim_log_text.pack(fill=tk.BOTH, expand=True)
+sim_log_text.configure(state='disabled')
+
+# Status indicator
+sim_status_var = tk.StringVar(value="Ready")
+ttk.Label(sim_control_frame, textvariable=sim_status_var).grid(row=5, column=0, columnspan=2, pady=5)
+
+# Status bar
+status_var = tk.StringVar()
+status_var.set("Ready" if SDR_AVAILABLE else "SDR support not available")
+ttk.Label(main_frame, textvariable=status_var, relief=tk.SUNKEN, anchor=tk.W).pack(side=tk.BOTTOM, fill=tk.X)
+
+# Define functions that were referenced in button commands
 def generate():
     """Generate AIS message from GUI input fields"""
     try:
@@ -769,7 +906,7 @@ def edit_signal_preset():
     ttk.Label(frame, text="Modulation:").grid(row=3, column=0, sticky=tk.W, pady=5)
     mod_var = tk.StringVar(value=preset["modulation"])
     ttk.Combobox(frame, textvariable=mod_var, 
-                values=["GMSK", "FM", "FSK", "BFSK", "Custom"]).grid(row=3, column=1)
+                values=["GMSK"]).grid(row=3, column=1)
     
     # Save function
     def save_changes():
@@ -809,152 +946,6 @@ def edit_signal_preset():
     
     ttk.Button(btn_frame, text="Save", command=save_changes).pack(side=tk.LEFT, padx=5)
     ttk.Button(btn_frame, text="Cancel", command=edit_window.destroy).pack(side=tk.LEFT)
-
-def transmit_multiple_signals():
-    """Transmit multiple signals in sequence"""
-    selected_indices = multi_signal_listbox.curselection()
-    if not selected_indices:
-        messagebox.showerror("Error", "Select at least one signal")
-        return
-    
-    # Warning for many signals
-    if len(selected_indices) > 5:
-        if not messagebox.askyesno("Warning", 
-                                 f"You selected {len(selected_indices)} signals. "
-                                 "This might cause hardware issues. Continue?"):
-            return
-    
-    # Clear queue
-    while not transmission_queue.empty():
-        try:
-            transmission_queue.get_nowait()
-            transmission_queue.task_done()
-        except queue.Empty:
-            break
-    
-    # Log update function
-    def update_log(msg):
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        log_text.configure(state='normal')
-        log_text.insert(tk.END, f"[{timestamp}] {msg}\n")
-        log_text.see(tk.END)
-        log_text.configure(state='disabled')
-        status_var.set(f"Last action: {msg}")
-    
-    # Queue selected signals
-    selected_presets = [SIGNAL_PRESETS[i] for i in selected_indices]
-    for preset in selected_presets:
-        transmission_queue.put((preset, None, update_log))
-    
-    update_log(f"Queued {len(selected_indices)} signals")
-    
-    # Start worker thread
-    if not is_transmitting:
-        threading.Thread(target=transmission_worker, daemon=True).start()
-
-def test_signal():
-    """Test a single signal"""
-    selected_index = multi_signal_listbox.curselection()
-    if not selected_index:
-        messagebox.showerror("Error", "Select a signal to test")
-        return
-    
-    selected_preset = SIGNAL_PRESETS[selected_index[0]]
-    
-    # Confirm test
-    if messagebox.askyesno("Test Signal", 
-                          f"Test {selected_preset['name']}?\n"
-                          f"Frequency: {selected_preset['freq']/1e6} MHz\n\n"
-                          "Ensure you have proper authorization to transmit."):
-        
-        # Log update function
-        def update_log(msg):
-            log_text.configure(state='normal')
-            log_text.insert(tk.END, f"[TEST] {msg}\n")
-            log_text.see(tk.END)
-            log_text.configure(state='disabled')
-            status_var.set(f"Test: {msg}")
-        
-        # Start transmission thread
-        threading.Thread(
-            target=transmit_signal, 
-            args=(selected_preset, None, update_log),
-            daemon=True
-        ).start()
-
-def start_ship_simulation():
-    """Start the ship simulation"""
-    global simulation_thread, ship_simulation_active
-    
-    # Get channel settings
-    try:
-        selected_index = int(sim_channel_var.get())
-        signal_preset = SIGNAL_PRESETS[selected_index]
-    except (ValueError, IndexError):
-        messagebox.showerror("Error", "Invalid AIS channel selection")
-        return
-    
-    # Get interval
-    try:
-        interval = max(5, float(sim_interval_var.get()))
-    except ValueError:
-        interval = 10
-    
-    # Get selected ships
-    selected_indices = ship_listbox.curselection()
-    if not selected_indices:
-        messagebox.showerror("Error", "Select at least one ship")
-        return
-    
-    # Create ship subset
-    active_ships = [SHIP_CONFIGS[i] for i in selected_indices]
-    
-    # Confirm
-    if not messagebox.askyesno("Start Simulation", 
-                             f"Start simulation of {len(active_ships)} ships?\n"
-                             f"Transmitting on {signal_preset['name']} every {interval} seconds.\n\n"
-                             "Ensure you have proper authorization to transmit."):
-        return
-    
-    # Set active ships
-    global SHIP_CONFIGS
-    SHIP_CONFIGS = active_ships
-    
-    # Update UI
-    sim_status_var.set("Simulation Active")
-    start_sim_btn.config(state=tk.DISABLED)
-    stop_sim_btn.config(state=tk.NORMAL)
-    
-    # Log update function
-    def update_sim_log(msg):
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        sim_log_text.configure(state='normal')
-        sim_log_text.insert(tk.END, f"[{timestamp}] {msg}\n")
-        sim_log_text.see(tk.END)
-        sim_log_text.configure(state='disabled')
-        sim_status_var.set(f"Simulation: {msg}")
-    
-    # Start simulation thread
-    ship_simulation_active = True
-    simulation_thread = threading.Thread(
-        target=run_ship_simulation, 
-        args=(signal_preset, interval, update_sim_log),
-        daemon=True
-    )
-    simulation_thread.start()
-
-def stop_ship_simulation():
-    """Stop the ship simulation"""
-    global ship_simulation_active
-    ship_simulation_active = False
-    
-    sim_status_var.set("Simulation Stopped")
-    start_sim_btn.config(state=tk.NORMAL)
-    stop_sim_btn.config(state=tk.DISABLED)
-    
-    # Reload ship configs
-    load_ship_configs()
-    update_ship_listbox()
 
 def add_new_ship():
     """Add a new ship to the simulation"""
@@ -1009,7 +1000,7 @@ def add_new_ship():
             # Create ship
             new_ship = AISShip(
                 name=vars_dict["ship_name"].get(),
-                mmsi=mmsi,
+                mmsi=int(vars_dict["mmsi"].get()),
                 ship_type=int(vars_dict["ship_type"].get()),
                 length=float(vars_dict["length"].get()),
                 beam=float(vars_dict["beam"].get()),
@@ -1153,278 +1144,79 @@ def delete_selected_ships():
     update_ship_listbox()
     save_ship_configs()
 
-def update_ship_listbox():
-    """Update the ship listbox with current configurations"""
-    ship_listbox.delete(0, tk.END)
+def start_ship_simulation():
+    """Start the ship simulation"""
+    global simulation_thread, ship_simulation_active
     
-    for i, ship in enumerate(SHIP_CONFIGS):
-        ship_listbox.insert(i, f"{ship.name} (MMSI: {ship.mmsi}) - {ship.speed} kts, {ship.course}°")
+    # Get channel settings
+    try:
+        selected_index = int(sim_channel_var.get())
+        signal_preset = SIGNAL_PRESETS[selected_index]
+    except (ValueError, IndexError):
+        messagebox.showerror("Error", "Invalid AIS channel selection")
+        return
+    
+    # Get interval
+    try:
+        interval = max(5, float(sim_interval_var.get()))
+    except ValueError:
+        interval = 10
+    
+    # Get selected ships
+    selected_indices = ship_listbox.curselection()
+    if not selected_indices:
+        messagebox.showerror("Error", "Select at least one ship")
+        return
+    
+    # Create ship subset
+    active_ships = [SHIP_CONFIGS[i] for i in selected_indices]
+    
+    # Confirm
+    if not messagebox.askyesno("Start Simulation", 
+                             f"Start simulation of {len(active_ships)} ships?\n"
+                             f"Transmitting on {signal_preset['name']} every {interval} seconds.\n\n"
+                             "Ensure you have proper authorization to transmit."):
+        return
+    
+    # Set active ships
+    global SHIP_CONFIGS
+    SHIP_CONFIGS = active_ships
+    
+    # Update UI
+    sim_status_var.set("Simulation Active")
+    start_sim_btn.config(state=tk.DISABLED)
+    stop_sim_btn.config(state=tk.NORMAL)
+    
+    # Log update function
+    def update_sim_log(msg):
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        sim_log_text.configure(state='normal')
+        sim_log_text.insert(tk.END, f"[{timestamp}] {msg}\n")
+        sim_log_text.see(tk.END)
+        sim_log_text.configure(state='disabled')
+        sim_status_var.set(f"Simulation: {msg}")
+    
+    # Start simulation thread
+    ship_simulation_active = True
+    simulation_thread = threading.Thread(
+        target=run_ship_simulation, 
+        args=(signal_preset, interval, update_sim_log),
+        daemon=True
+    )
+    simulation_thread.start()
 
-### GUI SETUP ###
-# Create main window
-root = tk.Tk()
-root.title("AIS NMEA Generator & Transmitter")
-root.minsize(800, 600)
-
-# Main frame
-main_frame = ttk.Frame(root, padding=10)
-main_frame.pack(fill=tk.BOTH, expand=True)
-
-# Create tabbed interface
-notebook = ttk.Notebook(main_frame)
-notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-# ----- Tab 1: AIS Message Generator -----
-ais_frame = ttk.Frame(notebook, padding=10)
-notebook.add(ais_frame, text="AIS Generator")
-
-# Left side - Input parameters
-input_frame = ttk.LabelFrame(ais_frame, text="Message Parameters", padding=10)
-input_frame.grid(row=0, column=0, sticky=(tk.N, tk.W, tk.E, tk.S), padx=5, pady=5)
-
-# Create input fields
-labels = ["Message Type", "Repeat", "MMSI", "Nav Status",
-          "ROT (-127..127)", "SOG (knots)", "Accuracy (0/1)",
-          "Longitude (°)", "Latitude (°)", "COG (°)",
-          "Heading (°)", "Timestamp (s)"]
-vars_ = []
-for i, lbl in enumerate(labels):
-    ttk.Label(input_frame, text=lbl).grid(column=0, row=i, sticky=tk.W, padx=5, pady=2)
-    var = tk.StringVar(value="0")
-    entry = ttk.Entry(input_frame, textvariable=var, width=15)
-    entry.grid(column=1, row=i, sticky=tk.W, padx=5, pady=2)
-    vars_.append(var)
-
-# Assign variables
-(msg_type_var, repeat_var, mmsi_var, nav_status_var,
- rot_var, sog_var, acc_var, lon_var,
- lat_var, cog_var, hdg_var, ts_var) = vars_
-
-# Default values
-msg_type_var.set("1")
-repeat_var.set("0")
-mmsi_var.set("366123456")
-nav_status_var.set("0")
-lon_var.set("-74.0060")
-lat_var.set("40.7128")
-sog_var.set("10.0")
-cog_var.set("90.0")
-
-# Generate button
-gen_btn = ttk.Button(input_frame, text="Generate Message", command=generate)
-gen_btn.grid(column=0, row=len(labels)+1, columnspan=2, pady=10)
-
-# Right side - Output
-output_frame = ttk.LabelFrame(ais_frame, text="Message Output", padding=10)
-output_frame.grid(row=0, column=1, sticky=(tk.N, tk.W, tk.E, tk.S), padx=5, pady=5)
-
-# Output fields
-ttk.Label(output_frame, text="AIS Payload:").grid(column=0, row=0, sticky=tk.W, pady=5)
-payload_var = tk.StringVar()
-ttk.Entry(output_frame, textvariable=payload_var, width=40).grid(column=0, row=1, sticky=(tk.W, tk.E))
-
-ttk.Label(output_frame, text="Fill Bits:").grid(column=0, row=2, sticky=tk.W, pady=5)
-fill_var = tk.StringVar()
-ttk.Entry(output_frame, textvariable=fill_var, width=5).grid(column=0, row=3, sticky=tk.W)
-
-ttk.Label(output_frame, text="NMEA Sentence:").grid(column=0, row=4, sticky=tk.W, pady=5)
-nmea_var = tk.StringVar()
-ttk.Entry(output_frame, textvariable=nmea_var, width=60).grid(column=0, row=5, sticky=(tk.W, tk.E))
-
-# Signal selection
-signal_frame = ttk.LabelFrame(output_frame, text="Transmission Signal", padding=10)
-signal_frame.grid(column=0, row=6, sticky=(tk.W, tk.E), pady=10)
-
-# Listbox for signal selection
-signal_listbox = tk.Listbox(signal_frame, height=5)
-signal_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-# Add scroll bar
-scrollbar = ttk.Scrollbar(signal_frame, orient="vertical", command=signal_listbox.yview)
-scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-signal_listbox.configure(yscrollcommand=scrollbar.set)
-
-# Populate the signal listbox
-for i, preset in enumerate(SIGNAL_PRESETS):
-    signal_listbox.insert(i, f"{preset['name']} ({preset['freq']/1e6} MHz)")
-signal_listbox.selection_set(0)
-
-# Edit signal button
-edit_btn = ttk.Button(output_frame, text="Edit Signal Settings", command=edit_signal_preset)
-edit_btn.grid(column=0, row=7, sticky=tk.W, pady=5)
-
-# Transmit button
-tx_btn = ttk.Button(output_frame, text="Transmit Message", command=transmit)
-tx_btn.grid(column=0, row=8, sticky=(tk.W, tk.E), pady=10)
-if not SDR_AVAILABLE:
-    tx_btn.config(state="disabled")
-
-# ----- Tab 2: Transmission Log -----
-log_frame = ttk.Frame(notebook, padding=10)
-notebook.add(log_frame, text="Transmission Log")
-
-# Text area for logs
-log_text = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, width=80, height=20)
-log_text.pack(fill=tk.BOTH, expand=True)
-log_text.configure(state='disabled')
-
-# ----- Tab 3: Multi-Signal Transmission -----
-multi_frame = ttk.Frame(notebook, padding=10)
-notebook.add(multi_frame, text="Multi-Signal")
-
-# Split into columns
-left_frame = ttk.Frame(multi_frame)
-left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
-
-right_frame = ttk.Frame(multi_frame)
-right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=5)
-
-# Signal selection list
-signal_list_frame = ttk.LabelFrame(left_frame, text="Available Signals", padding=10)
-signal_list_frame.pack(fill=tk.BOTH, expand=True, pady=5)
-
-# Multiple selection listbox
-multi_signal_listbox = tk.Listbox(signal_list_frame, height=15, selectmode=tk.MULTIPLE)
-multi_signal_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-# Add scroll bar
-multi_scrollbar = ttk.Scrollbar(signal_list_frame, orient="vertical", command=multi_signal_listbox.yview)
-multi_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-multi_signal_listbox.configure(yscrollcommand=multi_scrollbar.set)
-
-# Populate the list
-for i, preset in enumerate(SIGNAL_PRESETS):
-    multi_signal_listbox.insert(i, f"{preset['name']} ({preset['freq']/1e6} MHz)")
-
-# Control buttons
-control_frame = ttk.Frame(left_frame)
-control_frame.pack(fill=tk.X, pady=10)
-
-# Test signal button
-test_btn = ttk.Button(control_frame, text="Test Selected Signal", command=test_signal)
-test_btn.pack(side=tk.LEFT, padx=5)
-
-# Transmit all button
-multi_tx_btn = ttk.Button(control_frame, text="Transmit Selected", command=transmit_multiple_signals)
-multi_tx_btn.pack(side=tk.LEFT, padx=5)
-
-if not SDR_AVAILABLE:
-    test_btn.config(state="disabled")
-    multi_tx_btn.config(state="disabled")
-
-# Transmission settings
-settings_frame = ttk.LabelFrame(right_frame, text="Transmission Settings", padding=10)
-settings_frame.pack(fill=tk.BOTH, expand=True, pady=5)
-
-# Transmission mode
-tx_mode_var = tk.StringVar(value="sequential")
-ttk.Radiobutton(settings_frame, text="Sequential Transmission", 
-                variable=tx_mode_var, value="sequential").pack(anchor=tk.W, pady=5)
-ttk.Radiobutton(settings_frame, text="Simultaneous (Experimental)", 
-                variable=tx_mode_var, value="simultaneous").pack(anchor=tk.W, pady=5)
-
-# Delay setting
-ttk.Label(settings_frame, text="Delay between signals (seconds):").pack(anchor=tk.W, pady=(10,5))
-delay_var = tk.StringVar(value="0.5")
-ttk.Entry(settings_frame, textvariable=delay_var, width=5).pack(anchor=tk.W)
-
-# Warning
-ttk.Label(settings_frame, text="WARNING:", font=("Arial", 12, "bold")).pack(anchor=tk.W, pady=(20,5))
-warning_text = """
-Transmitting multiple signals may:
-1. Cause hardware issues with some SDR devices
-2. Create interference on multiple frequencies
-3. Violate radio regulations
-
-Ensure you have proper authorization to transmit.
-"""
-ttk.Label(settings_frame, text=warning_text, wraplength=300).pack(anchor=tk.W)
-
-# Status
-multi_status_frame = ttk.LabelFrame(right_frame, text="Status", padding=10)
-multi_status_frame.pack(fill=tk.X, pady=5)
-
-multi_status_var = tk.StringVar(value="Ready")
-ttk.Label(multi_status_frame, textvariable=multi_status_var).pack(fill=tk.X)
-
-# Progress bar
-progress_var = tk.DoubleVar(value=0.0)
-ttk.Progressbar(multi_status_frame, variable=progress_var, maximum=100).pack(fill=tk.X, pady=5)
-
-# Stop button
-ttk.Button(multi_status_frame, text="Stop All Transmissions", 
-          command=lambda: transmission_queue.queue.clear()).pack(pady=5)
-
-# ----- Tab 4: Ship Simulation -----
-sim_frame = ttk.Frame(notebook, padding=10)
-notebook.add(sim_frame, text="Ship Simulation")
-
-# Left side - Ship list
-ship_list_frame = ttk.LabelFrame(sim_frame, text="Ships", padding=10)
-ship_list_frame.grid(row=0, column=0, sticky=(tk.N, tk.W, tk.E, tk.S), padx=5, pady=5)
-
-# Ship selection listbox
-ship_listbox = tk.Listbox(ship_list_frame, height=15, selectmode=tk.MULTIPLE)
-ship_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-# Add scroll bar
-ship_scrollbar = ttk.Scrollbar(ship_list_frame, orient="vertical", command=ship_listbox.yview)
-ship_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-ship_listbox.configure(yscrollcommand=ship_scrollbar.set)
-
-# Ship control buttons
-ship_control_frame = ttk.Frame(ship_list_frame)
-ship_control_frame.pack(fill=tk.X, pady=10)
-
-# Add/Edit/Delete buttons
-add_ship_btn = ttk.Button(ship_control_frame, text="Add Ship", command=add_new_ship)
-add_ship_btn.pack(side=tk.LEFT, padx=5)
-
-edit_ship_btn = ttk.Button(ship_control_frame, text="Edit Ship", command=edit_selected_ship)
-edit_ship_btn.pack(side=tk.LEFT, padx=5)
-
-delete_ship_btn = ttk.Button(ship_control_frame, text="Delete Ship", command=delete_selected_ships)
-delete_ship_btn.pack(side=tk.LEFT, padx=5)
-
-# Right side - Simulation controls
-sim_control_frame = ttk.LabelFrame(sim_frame, text="Simulation Controls", padding=10)
-sim_control_frame.grid(row=0, column=1, sticky=(tk.N, tk.W, tk.E, tk.S), padx=5, pady=5)
-
-# Channel selection
-ttk.Label(sim_control_frame, text="AIS Channel:").grid(row=0, column=0, sticky=tk.W, pady=5)
-sim_channel_var = tk.StringVar(value="0")
-ttk.Combobox(sim_control_frame, textvariable=sim_channel_var, 
-             values=["0", "1"]).grid(row=0, column=1, sticky=(tk.W, tk.E), pady=5)
-
-# Interval setting
-ttk.Label(sim_control_frame, text="Interval (seconds):").grid(row=1, column=0, sticky=tk.W, pady=5)
-sim_interval_var = tk.StringVar(value="10")
-ttk.Entry(sim_control_frame, textvariable=sim_interval_var, width=5).grid(row=1, column=1, sticky=(tk.W, tk.E))
-
-# Start/Stop buttons
-start_sim_btn = ttk.Button(sim_control_frame, text="Start Simulation", command=start_ship_simulation)
-start_sim_btn.grid(row=2, column=0, columnspan=2, pady=10)
-
-stop_sim_btn = ttk.Button(sim_control_frame, text="Stop Simulation", command=stop_ship_simulation)
-stop_sim_btn.grid(row=3, column=0, columnspan=2, pady=10)
-stop_sim_btn.config(state=tk.DISABLED)
-
-# Simulation log
-sim_log_frame = ttk.LabelFrame(sim_control_frame, text="Simulation Log", padding=10)
-sim_log_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=10)
-
-sim_log_text = scrolledtext.ScrolledText(sim_log_frame, wrap=tk.WORD, width=40, height=10)
-sim_log_text.pack(fill=tk.BOTH, expand=True)
-sim_log_text.configure(state='disabled')
-
-# Status indicator
-sim_status_var = tk.StringVar(value="Ready")
-ttk.Label(sim_control_frame, textvariable=sim_status_var).grid(row=5, column=0, columnspan=2, pady=5)
-
-# Status bar
-status_var = tk.StringVar()
-status_var.set("Ready" if SDR_AVAILABLE else "SDR support not available")
-ttk.Label(main_frame, textvariable=status_var, relief=tk.SUNKEN, anchor=tk.W).pack(side=tk.BOTTOM, fill=tk.X)
+def stop_ship_simulation():
+    """Stop the ship simulation"""
+    global ship_simulation_active
+    ship_simulation_active = False
+    
+    sim_status_var.set("Simulation Stopped")
+    start_sim_btn.config(state=tk.NORMAL)
+    stop_sim_btn.config(state=tk.DISABLED)
+    
+    # Reload ship configs
+    load_ship_configs()
+    update_ship_listbox()
 
 # Load ship configurations and update the listbox
 load_ship_configs()
