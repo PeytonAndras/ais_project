@@ -149,6 +149,22 @@ def create_signal(signal_type, sample_rate, duration=2.0):
         # Simple carrier wave
         return np.exp(1j * 2 * np.pi * np.arange(num_samples) * 1000 / sample_rate) * 0.5
 
+
+# Move this function to the top of your file, after imports and before any other functions
+def calculate_crc(bits):
+    """Calculate CRC-16-CCITT for AIS message"""
+    poly = 0x1021
+    crc = 0xFFFF
+    
+    for bit in bits:
+        crc ^= (bit << 15)
+        for _ in range(8):
+            crc = (crc << 1) ^ poly if crc & 0x8000 else crc << 1
+        crc &= 0xFFFF
+        
+    # Return 16-bit CRC as list of bits
+    return [(crc >> i) & 1 for i in range(15, -1, -1)]
+
 def create_ais_signal(nmea_sentence, sample_rate=2e6, repetitions=6):
     """Create a properly modulated AIS signal from NMEA sentence"""
     # Extract payload from NMEA sentence
@@ -164,7 +180,11 @@ def create_ais_signal(nmea_sentence, sample_rate=2e6, repetitions=6):
     for char in payload:
         char_bits = char_to_sixbit(char)
         bits.extend(char_bits)
-        print(f"Character '{char}' encoded as: {char_bits}")
+    
+    # Calculate and append CRC - ADD THIS!
+    crc_bits = calculate_crc(bits)
+    bits.extend(crc_bits)
+    print(f"Added CRC bits: {crc_bits}")
     
     # Create HDLC frame with flags and bit stuffing
     start_flag = [0, 1, 1, 1, 1, 1, 1, 0]
@@ -1413,17 +1433,3 @@ update_ship_listbox()
 # Start the GUI
 root.mainloop()
 
-
-def calculate_crc(bits):
-    """Calculate CRC-16-CCITT for AIS message"""
-    poly = 0x1021
-    crc = 0xFFFF
-    
-    for bit in bits:
-        crc ^= (bit << 15)
-        for _ in range(8):
-            crc = (crc << 1) ^ poly if crc & 0x8000 else crc << 1
-        crc &= 0xFFFF
-        
-    # Return 16-bit CRC as list of bits
-    return [(crc >> i) & 1 for i in range(15, -1, -1)]

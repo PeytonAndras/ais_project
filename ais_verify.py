@@ -69,7 +69,7 @@ def main():
     ap.add_argument("--payload", help="filter exact 6-bit ASCII payload string")
     ap.add_argument("--gain", "-g", type=int, default=38)
     ap.add_argument("--ppm", type=int, default=0)
-    ap.add_argument("--seconds", "-t", type=int, default=20)
+    ap.add_argument("--seconds", "-t", type=int, default=60)
     args = ap.parse_args()
 
     mmsi_set = set(args.mmsi)
