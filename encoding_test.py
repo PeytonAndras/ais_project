@@ -163,24 +163,28 @@ def create_ais_signal(nmea_sentence, sample_rate=SAMPLE_RATE, repetitions=3):
         iq_samples[:ramp_len] *= ramp[:ramp_len]
         iq_samples[-ramp_len:] *= ramp[ramp_len:]
     
-    # Repeat the signal for better reception chance
-    final_signal = np.tile(iq_samples, repetitions)
-    
-    # Add silence between repetitions
-    silence_len = int(sample_rate * 0.2)  # 200ms silence
-    final_signal_with_silence = np.zeros(len(final_signal) + silence_len * (repetitions-1), dtype=complex)
-    
-    # Insert signal with silent gaps
-    pos = 0
-    chunk_len = len(iq_samples)
-    for i in range(repetitions):
-        final_signal_with_silence[pos:pos+chunk_len] = iq_samples
-        pos += chunk_len
-        if i < repetitions-1:
-            pos += silence_len
-    
-    print(f"Created AIS signal with {len(final_signal_with_silence)} samples")
-    return final_signal_with_silence
+    # NEW FIX: Add silence between repetitions correctly
+    if repetitions > 1:
+        silence_len = int(sample_rate * 0.2)  # 200ms silence
+        single_len = len(iq_samples)
+        total_len = single_len * repetitions + silence_len * (repetitions - 1)
+        
+        final_signal = np.zeros(total_len, dtype=complex)
+        
+        # Insert signal with silent gaps
+        pos = 0
+        for i in range(repetitions):
+            final_signal[pos:pos+single_len] = iq_samples
+            pos += single_len
+            if i < repetitions - 1:
+                pos += silence_len
+                
+        print(f"Created AIS signal with {len(final_signal)} samples")
+        return final_signal
+    else:
+        # Just return the original signal if repetitions=1
+        print(f"Created AIS signal with {len(iq_samples)} samples")
+        return iq_samples
 
 def transmit_with_hackrf(signal_data, center_freq, sample_rate=SAMPLE_RATE, tx_gain=40):
     """Transmit I/Q samples using HackRF"""
@@ -203,7 +207,7 @@ def transmit_with_hackrf(signal_data, center_freq, sample_rate=SAMPLE_RATE, tx_g
             "-s", str(int(sample_rate)),
             "-x", str(tx_gain),
             "-a", "1",  # Enable antenna port
-            "-b", "1.75"  # Set baseband filter bandwidth (MHz)
+           # "-b", "2"  # Set baseband filter bandwidth (MHz)
         ]
         
         print(f"Transmitting on {center_freq/1e6:.3f} MHz with gain {tx_gain} dB")
