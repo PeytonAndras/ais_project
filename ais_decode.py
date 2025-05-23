@@ -2,7 +2,7 @@
 """
 ais_decode.py – Minimal, pure-Python AIS receiver for RTL-SDR
 
-© 2025  Peyton Andras • MIT licence
+© 2025  Peyton Andras
 """
 import argparse, sys, time, struct, itertools, json, math, pathlib
 import numpy as np
