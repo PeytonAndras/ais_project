@@ -1,3 +1,7 @@
+# This script reads a binary IQ file and plots the time-domain and frequency-domain representations of the signal.
+
+
+
 import numpy as np
 import matplotlib.pyplot as plt
 

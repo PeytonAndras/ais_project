@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 """
+this is the old implementation of the entire main program: UI, transmission, and ship simulation
+however it is the old encoding/decoding and transmission code.. leaving untouched until proper
+tranmission code is achieved
+
+
 AIS NMEA Generator & Transmitter
 - Generate AIS messages with proper encoding
 - Transmit using HackRF or other SoapySDR devices

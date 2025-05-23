@@ -1,3 +1,6 @@
+# relay script that captures AIS signals into .iq files and replays them using HackRF to the same frequency.
+# for hackrf setup testing and AIS transmission testing.
+
 #!/usr/bin/env python3
 import subprocess
 import time

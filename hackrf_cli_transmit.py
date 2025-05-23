@@ -7,13 +7,13 @@ import os
 from datetime import datetime
 
 # AIS parameters
-FREQUENCY = 161975000  # 161.975 MHz (AIS channel A)
-SAMPLE_RATE = 2000000  # 2 MHz sample rate
+FREQUENCY = 161975000  # 161.975 MHz (AIS Ch. 1)
+SAMPLE_RATE = 2006400  # 2.0064 MHz sample rate (9600 Hz * 209)
 BIT_RATE = 9600  # AIS bit rate
 TX_REPEAT = 5   # Number of times to repeat the message in the generated file (Increased)
 
 # AIS message (just the payload part) - Standard Test Payload (MMSI: 211234560)
-AIS_PAYLOAD = "133sVfPP00PD>hRMDH@jNOvN20S8" # Example Type 1 payload from pyais tests
+AIS_PAYLOAD = "15NNevP000qNMgpAHv4EVAa00<1s" # Example Type 1 payload from pyais tests
 
 # HDLC flag (0x7E = 01111110) - This is the on-air pattern
 HDLC_FLAG = [0, 1, 1, 1, 1, 1, 1, 0]
@@ -33,31 +33,26 @@ def _reflect16(val):
             r |= (1 << (15 - i))
     return r
 
-def calculate_crc(bits_lsb_first_stream):
-    byte_values = []
-    for i in range(0, len(bits_lsb_first_stream), 8):
-        byte = 0
-        for j in range(min(8, len(bits_lsb_first_stream) - i)):
-            if bits_lsb_first_stream[i + j]:
-                byte |= (1 << j)
-        byte_values.append(byte)
-
-    crc_val = 0xFFFF
-    poly = 0x1021
-
-    for byte_val_orig in byte_values:
-        reflected_byte = _reflect_byte(byte_val_orig)
-        crc_val ^= (reflected_byte << 8)
-        for _ in range(8):
-            if crc_val & 0x8000:
-                crc_val = ((crc_val << 1) ^ poly) & 0xFFFF
-            else:
-                crc_val = (crc_val << 1) & 0xFFFF
-    reflected_crc = _reflect16(crc_val)
-    crc_bits_lsb_first = []
+def calculate_crc_standard_ais(bits_msb_first: list[int]) -> list[int]:
+    """
+    Calculates CRC-16-CCITT (poly 0x1021, init 0xFFFF, non-reflected).
+    Input bits should be MSB first for the entire message.
+    Returns CRC as a list of 16 bits, MSB first.
+    """
+    crc = 0xFFFF
+    polynomial = 0x1021
+    for bit in bits_msb_first:
+        xorbit = ((crc >> 15) & 1) ^ bit # Test MSB of CRC XOR current data bit
+        crc = (crc << 1) & 0xFFFF      # Shift CRC left
+        if xorbit:
+            crc = crc ^ polynomial     # XOR with polynomial
+    
+    # Return CRC as list of 16 bits, MSB first
+    crc_bits_out = []
     for i in range(16):
-        crc_bits_lsb_first.append((reflected_crc >> i) & 1)
-    return crc_bits_lsb_first
+        crc_bits_out.append((crc >> (15 - i)) & 1)
+    return crc_bits_out
+
 # --- End CRC Helper Functions ---
 
 def nmea_to_binary(nmea_payload):
@@ -65,8 +60,9 @@ def nmea_to_binary(nmea_payload):
     for char_val in nmea_payload:
         val = ord(char_val) - 48
         if val > 40: val -= 8
-        bits = [(val >> i) & 1 for i in range(6)] # LSB first
-        binary.extend(bits)
+        # Output bits MSB first for each 6-bit character
+        char_bits = [(val >> i) & 1 for i in range(5, -1, -1)] 
+        binary.extend(char_bits)
     return binary
 
 def nrz_to_nrzi(stuffed_data_bits):
@@ -94,8 +90,8 @@ def bit_stuff(data_with_crc_bits):
             consecutive_ones = 0
     return result
 
-def gmsk_modulate(bits_for_gmsk_modulation, sample_rate, bit_rate, bt=0.4):
-    samples_per_bit = int(sample_rate / bit_rate) # 2000000 / 9600 = 208.333 -> 208
+def gmsk_modulate(bits_for_gmsk_modulation, sample_rate, bit_rate, bt=0.4): # Changed bt back to 0.4
+    samples_per_bit = int(sample_rate / bit_rate) # 2006400 / 9600 = 209
     signal_levels = np.array([1.0 if bit == 1 else -1.0 for bit in bits_for_gmsk_modulation])
     signal_upsampled = np.repeat(signal_levels, samples_per_bit)
 
@@ -117,23 +113,43 @@ def gmsk_modulate(bits_for_gmsk_modulation, sample_rate, bit_rate, bt=0.4):
     return i_samples + 1j * q_samples
 
 def create_ais_packet_bits():
-    payload_bits = nmea_to_binary(AIS_PAYLOAD)
-    crc_bits = calculate_crc(payload_bits)
-    data_with_crc = payload_bits + crc_bits
-    stuffed_bits = bit_stuff(data_with_crc)
-    nrzi_encoded_payload = nrz_to_nrzi(stuffed_bits)
+    payload_bits = nmea_to_binary(AIS_PAYLOAD) # Now MSB first per char
+    crc_bits = calculate_crc_standard_ais(payload_bits) 
+    
+    data_to_stuff = payload_bits + crc_bits
+    stuffed_data = bit_stuff(data_to_stuff)
+    
+    # Assemble the entire content that needs NRZI encoding:
+    # HDLC_FLAG + stuffed_data + HDLC_FLAG
+    frame_content_before_nrzi = HDLC_FLAG + stuffed_data + HDLC_FLAG
+    
+    # Perform NRZI encoding on this complete frame content
+    nrzi_encoded_frame_content = nrz_to_nrzi(frame_content_before_nrzi)
+    
+    # AIS Training sequence (preamble)
+    # Standard is 24 bits of 0101...
+    # These are directly used as levels for GMSK modulation (0 maps to one phase state, 1 to another)
+    # which creates the necessary alternating frequency shifts for receiver synchronization.
+    preamble_levels = [i % 2 for i in range(24)] # 24 bits: 0,1,0,1...
 
-    # AIS Training sequence: 32 bits of 0101... (Increased)
-    training_sequence = [val for _ in range(16) for val in (0,1)]
-
-    frame_bits = training_sequence + HDLC_FLAG + nrzi_encoded_payload + HDLC_FLAG
-    return frame_bits
+    # Final bit stream for the GMSK modulator:
+    # Preamble (as direct levels) + NRZI encoded (flags + data + flags)
+    final_bits_for_modulation = preamble_levels + nrzi_encoded_frame_content
+    return final_bits_for_modulation
 
 def main():
     print(f"AIS Payload: {AIS_PAYLOAD}")
     
     single_packet_on_air_bits = create_ais_packet_bits()
-    single_packet_iq = gmsk_modulate(single_packet_on_air_bits, SAMPLE_RATE, BIT_RATE, bt=0.4)
+    # Consider the samples_per_bit issue. For a quick test, the current modulation might work
+    # if CRC and bit order are fixed. A more precise modulator would be better long-term.
+    # For example, by ensuring the total number of samples for one bit period is as close to
+    # SAMPLE_RATE / BIT_RATE as possible, or by using fractional rate resampling techniques
+    # in the filter design or phase accumulation.
+    # One simple improvement could be to calculate total samples for the packet based on the true bit rate
+    # and adjust the number of samples for the last bit, but this is complex with np.repeat.
+    # The current 0.16% bit rate error from using 208 samples_per_bit might still be an issue.
+    single_packet_iq = gmsk_modulate(single_packet_on_air_bits, SAMPLE_RATE, BIT_RATE, bt=0.4) # Ensure bt=0.4 is used here
     print(f"Generated {len(single_packet_on_air_bits)} bits for one packet, resulting in {len(single_packet_iq)} IQ samples.")
 
     silence_duration_seconds = 0.1 # 100 ms
@@ -177,29 +193,56 @@ def main():
             iq_bytes.tofile(pf)
         print(f"Saved permanent IQ data copy to: {perm_file_path}")
 
-        print(f"Transmitting on {FREQUENCY/1e6:.3f} MHz at {SAMPLE_RATE/1e6:.1f} Msps...")
+        print(f"Starting continuous transmission on {FREQUENCY/1e6:.3f} MHz at {SAMPLE_RATE/1e6:.1f} Msps...")
+        print("Press Ctrl+C to stop.")
+        
         cmd = [
             "hackrf_transfer",
             "-t", temp_file_path,
             "-f", str(FREQUENCY),
             "-s", str(SAMPLE_RATE),
             "-a", "1",   # Enable antenna port power (amp)
-            "-x", "47",  # Max TX VGA gain (0-47 dB)
+            "-x", "0",  # Max TX VGA gain (0-47 dB) - Increased from 5. Adjust as needed for your setup.
+            # Consider adding '-R' if you want hackrf_transfer to repeat the file itself,
+            # though the Python script already handles TX_REPEAT internally for the file content.
+            # If you want continuous transmission of the *file*, '-R' is an option for hackrf_transfer.
+            # However, looping in Python gives more control for potential future changes (e.g. dynamic signal).
         ]
         
-        print(f"Running command: {' '.join(cmd)}")
-        process = subprocess.run(cmd, check=True, capture_output=True, text=True)
-        # print("hackrf_transfer stdout:") # Often empty for successful TX
-        # print(process.stdout)
-        if process.stderr: # hackrf_transfer often prints status to stderr
-            print("hackrf_transfer stderr:")
-            print(process.stderr)
-        print("Transmission finished successfully.")
-        
+        loop_count = 0
+        while True:
+            loop_count += 1
+            print(f"Transmission loop #{loop_count} starting...")
+            print(f"Running command: {' '.join(cmd)}")
+            # We don't use check=True here in the loop to allow Ctrl+C to be handled by the outer try/except
+            process = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if process.returncode == 0:
+                # print("hackrf_transfer stdout:") # Often empty for successful TX
+                # print(process.stdout)
+                if process.stderr: # hackrf_transfer often prints status to stderr
+                    print("hackrf_transfer stderr:")
+                    print(process.stderr.strip())
+                print(f"Transmission loop #{loop_count} finished successfully.")
+            else:
+                print(f"Error during hackrf_transfer execution in loop #{loop_count}:")
+                print(f"Command: {' '.join(cmd)}")
+                print(f"Return code: {process.returncode}")
+                if process.stdout:
+                    print(f"Stdout: {process.stdout.strip()}")
+                if process.stderr:
+                    print(f"Stderr: {process.stderr.strip()}")
+                print("Stopping loop due to error.")
+                break # Exit the loop on error
+            
+            # Optional: Add a small delay between transmissions if desired,
+            # though hackrf_transfer blocks until its current transmission is done.
+            # time.sleep(0.1) # Example: 100ms delay
+
     except KeyboardInterrupt:
         print("\nTransmission stopped by user.")
-    except subprocess.CalledProcessError as e:
-        print(f"Error during hackrf_transfer execution:")
+    except subprocess.CalledProcessError as e: # This might not be hit if check=False in the loop
+        print(f"Error during hackrf_transfer execution (outside loop or initial setup):")
         print(f"Command: {' '.join(e.cmd)}")
         print(f"Return code: {e.returncode}")
         print(f"Stdout: {e.stdout}")

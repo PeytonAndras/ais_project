@@ -2,17 +2,11 @@
 """
 ais_sniff.py – receive & show raw AIS payloads from an RTL-SDR
 
+Peyton Andras 
+
 Usage examples
 --------------
-
-# 1) Just show everything for 15 s
-./ais_sniff.py --seconds 15
-
-# 2) Show only my exact payload string
-./ais_sniff.py --payload 15M:Gw@01pre<=PGCtcP001600
-
-# 3) Filter by MMSI (and keep the bit dump)
-./ais_sniff.py 366123005 --seconds 30
+receive all AIS messages: from rtl_ais and show raw binary payloads
 """
 import argparse, os, re, shlex, signal, socket, subprocess, sys, time
 from datetime import datetime
