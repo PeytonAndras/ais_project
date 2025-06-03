@@ -1101,8 +1101,8 @@ def update_map(force=False):
                 marker.ship_ref = ship
                 
                 # Add click event to show ship details
-                def make_click_handler(ship_obj):
-                    def on_marker_click(marker):
+                def make_click_handler(ship_obj, marker_obj):
+                    def on_marker_click(marker=None):  # Accept an optional parameter
                         # Update ship info display
                         ship_info_text.config(state=tk.NORMAL)
                         ship_info_text.delete(1.0, tk.END)
@@ -1119,16 +1119,30 @@ def update_map(force=False):
                         ship_info_text.insert(tk.END, info)
                         ship_info_text.config(state=tk.DISABLED)
                         
-                        # Highlight selected ship (change icon if available)
-                        for m in ship_markers.values():
-                            if hasattr(m, 'icon') and ship_icon:
-                                m.icon = ship_icon
-                        if hasattr(marker, 'icon') and ship_icon_selected:
-                            marker.icon = ship_icon_selected
-                            
+                        # Reset all markers first
+                        for mmsi_key, m in ship_markers.items():
+                            # Set all markers back to default
+                            if PIL_AVAILABLE and ship_icon:
+                                try:
+                                    m.icon = ship_icon  # Reset icon
+                                    m.icon_anchor = None  # Reset anchor if needed
+                                except:
+                                    pass  # If any error occurs, just continue
+                        
+                        # Now highlight the selected marker
+                        if PIL_AVAILABLE and ship_icon_selected:
+                            try:
+                                marker_obj.icon = ship_icon_selected
+                            except:
+                                pass
+                                
+                        # Force a redraw of the map widget
+                        if MAP_VIEW_AVAILABLE:
+                            map_widget.update_idletasks()
+                    
                     return on_marker_click
                 
-                marker.command = make_click_handler(ship)
+                marker.command = make_click_handler(ship, marker)
                 ship_markers[mmsi] = marker
             
             # Update ship track polyline if enabled
