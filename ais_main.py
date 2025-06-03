@@ -162,6 +162,41 @@ def calculate_crc(bits):
     
     return [(crc >> i) & 1 for i in range(15, -1, -1)]
 
+def haversine(lat1, lon1, lat2, lon2):
+    """Calculate the great circle distance between two points in kilometers"""
+    # Convert decimal degrees to radians
+    lat1, lon1, lat2, lon2 = map(math.radians, [lat1, lon1, lat2, lon2])
+    
+    # Haversine formula
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+    c = 2 * math.asin(math.sqrt(a))
+    r = 6371  # Radius of earth in kilometers
+    return c * r
+
+def calculate_initial_compass_bearing(point1, point2):
+    """Calculate the initial compass bearing between two points"""
+    lat1, lon1 = point1
+    lat2, lon2 = point2
+    
+    # Convert decimal degrees to radians
+    lat1 = math.radians(lat1)
+    lat2 = math.radians(lat2)
+    lon_diff = math.radians(lon2 - lon1)
+    
+    # Calculate bearing
+    x = math.sin(lon_diff) * math.cos(lat2)
+    y = math.cos(lat1) * math.sin(lat2) - (math.sin(lat1) * math.cos(lat2) * math.cos(lon_diff))
+    
+    initial_bearing = math.atan2(x, y)
+    initial_bearing = math.degrees(initial_bearing)
+    
+    # Normalize to 0-360
+    bearing = (initial_bearing + 360) % 360
+    
+    return bearing
+
 def create_ais_signal(nmea_sentence, sample_rate=2e6, repetitions=6):
     """Create a properly modulated AIS signal from NMEA sentence"""
     # Extract payload from NMEA sentence
@@ -287,6 +322,11 @@ class AISShip:
         self.destination = destination
         self.accuracy = 1     # position accuracy (1=high)
         self.heading = course # heading initially matches course
+        
+        # New attributes for waypoint navigation
+        self.waypoints = []  # List of (lat, lon) tuples
+        self.current_waypoint = -1  # Index of current target waypoint
+        self.waypoint_radius = 0.01  # ~1km radius to consider waypoint reached
     
     def move(self, elapsed_seconds):
         """Move the ship based on speed and course"""
@@ -312,6 +352,30 @@ class AISShip:
             course_change = rot_deg_min * (elapsed_seconds / 60.0)
             self.course = (self.course + course_change) % 360
             self.heading = round(self.course)
+        
+        # Check waypoint navigation
+        self.check_waypoint_reached()
+    
+    def check_waypoint_reached(self):
+        """Check and handle reaching of waypoints"""
+        if self.current_waypoint == -1 or self.current_waypoint >= len(self.waypoints):
+            return  # No valid waypoint to check
+        
+        target_wp = self.waypoints[self.current_waypoint]
+        distance_to_wp = haversine(self.lat, self.lon, target_wp[0], target_wp[1])
+        
+        if distance_to_wp <= self.waypoint_radius:
+            # Waypoint reached
+            print(f"Waypoint {self.current_waypoint+1} reached: {target_wp}")
+            self.current_waypoint += 1  # Move to next waypoint
+            
+            if self.current_waypoint < len(self.waypoints):
+                # Set course to next waypoint
+                next_wp = self.waypoints[self.current_waypoint]
+                self.course = calculate_initial_compass_bearing((self.lat, self.lon), next_wp)
+                print(f"Course set to next waypoint {self.current_waypoint+1}: {self.course}°")
+            else:
+                print("All waypoints reached")
     
     def get_ais_fields(self):
         """Get fields for AIS message construction"""
