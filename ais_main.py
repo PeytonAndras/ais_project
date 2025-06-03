@@ -9,6 +9,7 @@ AIS NMEA Generator & Transmitter
 - Generate AIS messages with proper encoding
 - Transmit using HackRF or other SoapySDR devices
 - Simulate vessel movements with AIS position reporting
+- Visualize ship movements on interactive map
 """
 import tkinter as tk          
 from tkinter import ttk, messagebox, scrolledtext
@@ -19,6 +20,26 @@ import json
 import os
 from datetime import datetime, timedelta
 import math
+import webbrowser  # For opening fallback map if needed
+import tempfile
+
+# Add map visualization libraries
+try:
+    import tkintermapview  # Main map widget
+    MAP_VIEW_AVAILABLE = True
+    print("tkintermapview imported successfully")
+except ImportError as e:
+    MAP_VIEW_AVAILABLE = False
+    print(f"tkintermapview import error: {e}. Map functionality will be limited.")
+    print("Install with: pip install tkintermapview")
+
+try:
+    from PIL import Image, ImageTk
+    PIL_AVAILABLE = True
+    print("PIL imported successfully")
+except ImportError:
+    PIL_AVAILABLE = False
+    print("PIL import error. Ship icons will be basic. Install with: pip install pillow")
 
 ### SDR CONFIGURATION ###
 try:
@@ -805,6 +826,359 @@ ttk.Label(sim_control_frame, textvariable=sim_status_var).grid(row=5, column=0, 
 status_var = tk.StringVar()
 status_var.set("Ready" if SDR_AVAILABLE else "SDR support not available")
 ttk.Label(main_frame, textvariable=status_var, relief=tk.SUNKEN, anchor=tk.W).pack(side=tk.BOTTOM, fill=tk.X)
+
+# ----- Tab 4: Map Visualization -----
+map_frame = ttk.Frame(notebook, padding=10)
+notebook.add(map_frame, text="Map View")
+
+# Ship tracking variables
+ship_markers = {}  # Dictionary to store ship markers on map
+ship_tracks = {}   # Dictionary to store historical positions for each ship
+track_lines = {}   # Dictionary to store the polyline objects for ship tracks
+
+# Split map frame into two parts: map and control panel
+map_container = ttk.Frame(map_frame)
+map_container.grid(row=0, column=0, sticky=(tk.N, tk.W, tk.E, tk.S))
+
+map_control_panel = ttk.LabelFrame(map_frame, text="Map Controls", padding=10)
+map_control_panel.grid(row=0, column=1, sticky=(tk.N, tk.W, tk.S), padx=5)
+
+# Make the map expand with window resizing
+map_frame.columnconfigure(0, weight=1)
+map_frame.rowconfigure(0, weight=1)
+map_container.columnconfigure(0, weight=1)
+map_container.rowconfigure(0, weight=1)
+
+if MAP_VIEW_AVAILABLE:
+    # Create the map widget
+    map_widget = tkintermapview.TkinterMapView(map_container, width=600, height=400, corner_radius=0)
+    map_widget.grid(row=0, column=0, sticky=(tk.N, tk.W, tk.E, tk.S))
+    
+    # Set default position (New York Harbor)
+    map_widget.set_position(40.7128, -74.0060)  # NY Harbor area
+    map_widget.set_zoom(12)
+else:
+    # Fallback if map widget is not available
+    map_fallback_frame = ttk.LabelFrame(map_container, text="Map Not Available", padding=20)
+    map_fallback_frame.grid(row=0, column=0, sticky=(tk.N, tk.W, tk.E, tk.S))
+    
+    ttk.Label(map_fallback_frame, text="tkintermapview module is required for the map display.").pack(pady=10)
+    ttk.Label(map_fallback_frame, text="Install using: pip install tkintermapview").pack(pady=5)
+    
+    def open_browser_map():
+        # Open a web-based map as fallback
+        webbrowser.open("https://www.openstreetmap.org/#map=12/40.7128/-74.0060")
+    
+    ttk.Button(map_fallback_frame, text="Open Map in Browser", command=open_browser_map).pack(pady=20)
+
+# Map control elements
+ttk.Label(map_control_panel, text="Tracking Options:").grid(row=0, column=0, sticky=tk.W, pady=5)
+
+# Track history length
+ttk.Label(map_control_panel, text="Track History:").grid(row=1, column=0, sticky=tk.W, pady=5)
+track_history_var = tk.StringVar(value="20")
+track_history_entry = ttk.Entry(map_control_panel, textvariable=track_history_var, width=5)
+track_history_entry.grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
+ttk.Label(map_control_panel, text="points").grid(row=1, column=2, sticky=tk.W)
+
+# Track display toggle
+show_tracks_var = tk.BooleanVar(value=True)
+show_tracks_check = ttk.Checkbutton(map_control_panel, text="Show Tracks", variable=show_tracks_var)
+show_tracks_check.grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=5)
+
+# Map type selection
+ttk.Label(map_control_panel, text="Map Type:").grid(row=3, column=0, sticky=tk.W, pady=10)
+map_type_var = tk.StringVar(value="OpenStreetMap")
+if MAP_VIEW_AVAILABLE:
+    map_type_combo = ttk.Combobox(map_control_panel, textvariable=map_type_var, 
+                                 values=["OpenStreetMap", "Google Normal", "Google Satellite"])
+    map_type_combo.grid(row=3, column=1, columnspan=2, sticky=(tk.W, tk.E), pady=10)
+    
+    def change_map_type(event=None):
+        selected = map_type_var.get()
+        if selected == "OpenStreetMap":
+            map_widget.set_tile_server("https://a.tile.openstreetmap.org/{z}/{x}/{y}.png")
+        elif selected == "Google Normal":
+            map_widget.set_tile_server("https://mt0.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}&s=Ga", max_zoom=22)
+        elif selected == "Google Satellite":
+            map_widget.set_tile_server("https://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}&s=Ga", max_zoom=22)
+    
+    map_type_combo.bind("<<ComboboxSelected>>", change_map_type)
+else:
+    ttk.Combobox(map_control_panel, textvariable=map_type_var, 
+                values=["OpenStreetMap"], state="disabled").grid(row=3, column=1, columnspan=2, sticky=(tk.W, tk.E), pady=10)
+
+# Center map button
+def center_map_on_ships():
+    if not MAP_VIEW_AVAILABLE or not SHIP_CONFIGS:
+        return
+        
+    # Calculate the center and bounds of all ships
+    lats = [ship.lat for ship in SHIP_CONFIGS]
+    lons = [ship.lon for ship in SHIP_CONFIGS]
+    
+    if not lats or not lons:
+        return
+        
+    # Calculate center
+    center_lat = sum(lats) / len(lats)
+    center_lon = sum(lons) / len(lons)
+    
+    # Calculate zoom level based on spread
+    min_lat, max_lat = min(lats), max(lats)
+    min_lon, max_lon = min(lons), max(lons)
+    
+    # Set position and appropriate zoom
+    map_widget.set_position(center_lat, center_lon)
+    
+    # If ships are far apart, adjust zoom to fit all
+    if max(max_lat - min_lat, (max_lon - min_lon) * math.cos(math.radians(center_lat))) > 0.1:
+        map_widget.fit_bounding_box((min_lat, min_lon), (max_lat, max_lon))
+    else:
+        map_widget.set_zoom(12)  # Default zoom if ships are close together
+
+ttk.Button(map_control_panel, text="Center on Ships", command=center_map_on_ships).grid(
+    row=4, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+
+# Clear tracks button
+def clear_all_tracks():
+    if not MAP_VIEW_AVAILABLE:
+        return
+        
+    for mmsi, track_line in track_lines.items():
+        if track_line:
+            map_widget.delete(track_line)
+    
+    track_lines.clear()
+    
+    for mmsi in ship_tracks:
+        ship_tracks[mmsi] = []
+        
+    update_map(force=True)
+
+ttk.Button(map_control_panel, text="Clear All Tracks", command=clear_all_tracks).grid(
+    row=5, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+
+# Ship information display
+ship_info_frame = ttk.LabelFrame(map_control_panel, text="Selected Ship Info", padding=10)
+ship_info_frame.grid(row=6, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=15)
+
+ship_info_text = tk.Text(ship_info_frame, width=25, height=8, wrap=tk.WORD)
+ship_info_text.pack(fill=tk.BOTH, expand=True)
+ship_info_text.insert(tk.END, "Click on a ship to view details")
+ship_info_text.config(state=tk.DISABLED)
+
+# Create ship icons if PIL is available
+ship_icon = None
+ship_icon_selected = None
+
+if PIL_AVAILABLE and MAP_VIEW_AVAILABLE:
+    # Create a simple ship icon (triangle pointing in direction of travel)
+    def create_ship_icon(color="blue", size=20):
+        img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        from PIL import ImageDraw
+        draw = ImageDraw.Draw(img)
+        # Draw a ship-like triangle
+        draw.polygon([(size//2, 0), (0, size), (size, size)], fill=color)
+        return ImageTk.PhotoImage(img)
+    
+    # Create standard and selected ship icons
+    ship_icon = create_ship_icon(color="blue", size=24)
+    ship_icon_selected = create_ship_icon(color="red", size=24)
+
+# Function to update the map with current ship positions
+def update_map(force=False):
+    if not MAP_VIEW_AVAILABLE:
+        return
+        
+    # Get track history length
+    try:
+        max_track_points = max(1, min(100, int(track_history_var.get())))
+    except ValueError:
+        max_track_points = 20  # Default value
+    
+    # Update each ship's position on the map
+    for ship in SHIP_CONFIGS:
+        mmsi = ship.mmsi
+        
+        # Add current position to track history
+        if mmsi not in ship_tracks:
+            ship_tracks[mmsi] = []
+        
+        # Add position to track if it has changed
+        last_position = ship_tracks[mmsi][-1] if ship_tracks[mmsi] else None
+        current_position = (ship.lat, ship.lon)
+        
+        if not last_position or last_position != current_position or force:
+            ship_tracks[mmsi].append(current_position)
+            
+            # Limit track history
+            while len(ship_tracks[mmsi]) > max_track_points:
+                ship_tracks[mmsi].pop(0)
+            
+            # Update or create ship marker
+            if mmsi in ship_markers:
+                # Update existing marker
+                ship_markers[mmsi].position = current_position
+                
+                # Also update the ship marker's rotation if supported
+                if hasattr(ship_markers[mmsi], 'set_marker_text_color'):
+                    ship_markers[mmsi].text = f"{ship.name}\n{ship.speed}kn"
+            else:
+                # Create new marker
+                marker_text = f"{ship.name}\n{ship.speed}kn"
+                marker = map_widget.set_marker(
+                    ship.lat, ship.lon,
+                    text=marker_text,
+                    icon=ship_icon
+                )
+                
+                # Store ship reference in marker for click handler
+                marker.ship_ref = ship
+                
+                # Add click event to show ship details
+                def make_click_handler(ship_obj):
+                    def on_marker_click(marker):
+                        # Update ship info display
+                        ship_info_text.config(state=tk.NORMAL)
+                        ship_info_text.delete(1.0, tk.END)
+                        
+                        # Format ship info
+                        info = (
+                            f"Name: {ship_obj.name}\n"
+                            f"MMSI: {ship_obj.mmsi}\n"
+                            f"Position: {ship_obj.lat:.5f}, {ship_obj.lon:.5f}\n"
+                            f"Course: {ship_obj.course}°\n"
+                            f"Speed: {ship_obj.speed} knots\n"
+                            f"Status: {ship_obj.status}\n"
+                        )
+                        ship_info_text.insert(tk.END, info)
+                        ship_info_text.config(state=tk.DISABLED)
+                        
+                        # Highlight selected ship (change icon if available)
+                        for m in ship_markers.values():
+                            if hasattr(m, 'icon') and ship_icon:
+                                m.icon = ship_icon
+                        if hasattr(marker, 'icon') and ship_icon_selected:
+                            marker.icon = ship_icon_selected
+                            
+                    return on_marker_click
+                
+                marker.command = make_click_handler(ship)
+                ship_markers[mmsi] = marker
+            
+            # Update ship track polyline if enabled
+            if show_tracks_var.get() and len(ship_tracks[mmsi]) > 1:
+                # Delete existing track line if it exists
+                if mmsi in track_lines and track_lines[mmsi]:
+                    map_widget.delete(track_lines[mmsi])
+                
+                # Create new track line
+                track_line = map_widget.set_path(
+                    ship_tracks[mmsi],
+                    width=2,
+                    color=f"#{mmsi % 0xFFFFFF:06x}"  # Generate color based on MMSI
+                )
+                track_lines[mmsi] = track_line
+            elif not show_tracks_var.get() and mmsi in track_lines and track_lines[mmsi]:
+                # Hide track if track display is disabled
+                map_widget.delete(track_lines[mmsi])
+                track_lines[mmsi] = None
+
+# Add update_map to the ship simulation process
+original_run_ship_simulation = run_ship_simulation
+
+def enhanced_run_ship_simulation(*args, **kwargs):
+    """Wrapper around original run_ship_simulation to add map updates"""
+    global ship_simulation_active
+    ship_simulation_active = True
+    
+    def map_update_thread():
+        while ship_simulation_active:
+            # Update map on UI thread
+            root.after(0, update_map)
+            time.sleep(1)  # Update map once per second
+    
+    # Start map update thread
+    if MAP_VIEW_AVAILABLE:
+        threading.Thread(target=map_update_thread, daemon=True).start()
+    
+    # Run original simulation
+    original_run_ship_simulation(*args, **kwargs)
+
+# Replace the original function with our enhanced version
+run_ship_simulation = enhanced_run_ship_simulation
+
+# Additional enhancements to hook into existing UI actions
+
+def start_ship_simulation_with_map():
+    """Enhanced version that updates the map too"""
+    start_ship_simulation()
+    if MAP_VIEW_AVAILABLE:
+        # Center the map on ships when simulation starts
+        root.after(500, center_map_on_ships)  # Small delay to ensure positions are updated first
+
+# Replace the button commands
+start_sim_btn.config(command=start_ship_simulation_with_map)
+
+# Add a listener for track display toggle
+def toggle_track_visibility():
+    if not MAP_VIEW_AVAILABLE:
+        return
+        
+    show_tracks = show_tracks_var.get()
+    for mmsi, track_line in track_lines.items():
+        if not show_tracks and track_line:
+            # Hide track
+            map_widget.delete(track_line)
+            track_lines[mmsi] = None
+        elif show_tracks and not track_line and mmsi in ship_tracks and len(ship_tracks[mmsi]) > 1:
+            # Show track
+            track_line = map_widget.set_path(
+                ship_tracks[mmsi],
+                width=2,
+                color=f"#{mmsi % 0xFFFFFF:06x}"
+            )
+            track_lines[mmsi] = track_line
+
+# Connect toggle function
+show_tracks_check.config(command=toggle_track_visibility)
+
+# Initialize map with current ship positions if available
+if MAP_VIEW_AVAILABLE and SHIP_CONFIGS:
+    root.after(1000, update_map)  # Update map soon after startup
+    root.after(1500, center_map_on_ships)  # Center map after initialization
+
+# Make sure we clear everything when exiting
+def original_stop_ship_simulation():
+    """Stop the ship simulation"""
+    global ship_simulation_active
+    ship_simulation_active = False
+    
+    sim_status_var.set("Simulation Stopped")
+    start_sim_btn.config(state=tk.NORMAL)
+    stop_sim_btn.config(state=tk.DISABLED)
+    
+    # Reload ship configs
+    load_ship_configs()
+    update_ship_listbox()
+
+def enhanced_stop_ship_simulation():
+    """Enhanced version that updates the map"""
+    global ship_simulation_active
+    ship_simulation_active = False
+    
+    original_stop_ship_simulation()
+    
+    if MAP_VIEW_AVAILABLE:
+        # Clear markers from map when simulation stops
+        for marker in ship_markers.values():
+            map_widget.delete(marker)
+        ship_markers.clear()
+
+# Update geometry weights for resizing
+root.grid_rowconfigure(0, weight=1)
+root.grid_columnconfigure(0, weight=1)
 
 # Define functions that were referenced in button commands
 def generate():
