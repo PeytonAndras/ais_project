@@ -5,8 +5,8 @@
     "ship_type": 70,
     "length": 100,
     "beam": 20,
-    "lat": 40.7028,
-    "lon": -74.016,
+    "lat": 40.705340564189825,
+    "lon": -74.0126487304417,
     "course": 45,
     "speed": 8,
     "status": 0,
@@ -15,7 +15,8 @@
     "accuracy": 1,
     "heading": 45,
     "waypoints": [],
-    "current_waypoint": 0
+    "current_waypoint": -1,
+    "waypoint_radius": 0.01
   },
   {
     "name": "Tanker 2",
@@ -24,7 +25,7 @@
     "length": 120,
     "beam": 25,
     "lat": 40.705,
-    "lon": -74.018,
+    "lon": -74.01503781879214,
     "course": 90,
     "speed": 5,
     "status": 0,
@@ -33,7 +34,8 @@
     "accuracy": 1,
     "heading": 90,
     "waypoints": [],
-    "current_waypoint": 0
+    "current_waypoint": -1,
+    "waypoint_radius": 0.01
   },
   {
     "name": "Passenger 3",
@@ -42,7 +44,7 @@
     "length": 80,
     "beam": 15,
     "lat": 40.698,
-    "lon": -74.01,
+    "lon": -74.01592373985149,
     "course": 270,
     "speed": 10,
     "status": 0,
@@ -51,7 +53,8 @@
     "accuracy": 1,
     "heading": 270,
     "waypoints": [],
-    "current_waypoint": 0
+    "current_waypoint": -1,
+    "waypoint_radius": 0.01
   },
   {
     "name": "Tug 4",
@@ -59,7 +62,7 @@
     "ship_type": 50,
     "length": 30,
     "beam": 10,
-    "lat": 40.7,
+    "lat": 40.698203549833345,
     "lon": -74.012,
     "course": 180,
     "speed": 4,
@@ -69,25 +72,8 @@
     "accuracy": 1,
     "heading": 180,
     "waypoints": [],
-    "current_waypoint": 0
-  },
-  {
-    "name": "Ferry 5",
-    "mmsi": 366123005,
-    "ship_type": 60,
-    "length": 40,
-    "beam": 12,
-    "lat": 40.706,
-    "lon": -74.014,
-    "course": 0,
-    "speed": 12,
-    "status": 0,
-    "turn": 0,
-    "destination": "",
-    "accuracy": 1,
-    "heading": 0,
-    "waypoints": [],
-    "current_waypoint": 0
+    "current_waypoint": -1,
+    "waypoint_radius": 0.01
   },
   {
     "name": "Vessel 1",
@@ -96,7 +82,7 @@
     "length": 100.0,
     "beam": 20.0,
     "lat": 40.7128,
-    "lon": -74.006,
+    "lon": -74.00125995488919,
     "course": 90.0,
     "speed": 8.0,
     "status": 0,
@@ -105,41 +91,7 @@
     "accuracy": 1,
     "heading": 90,
     "waypoints": [],
-    "current_waypoint": 0
-  },
-  {
-    "name": "Vessel 2",
-    "mmsi": 366000001,
-    "ship_type": 70,
-    "length": 100.0,
-    "beam": 20.0,
-    "lat": 40.7128,
-    "lon": -74.006,
-    "course": 90.0,
-    "speed": 8.0,
-    "status": 0,
-    "turn": 0,
-    "destination": "NEW YORK",
-    "accuracy": 1,
-    "heading": 90.0,
-    "waypoints": [
-      [
-        35.0458,
-        85.3094
-      ],
-      [
-        40.0,
-        87.0
-      ],
-      [
-        42.0,
-        89.0
-      ],
-      [
-        45.0,
-        92.0
-      ]
-    ],
-    "current_waypoint": 0
+    "current_waypoint": -1,
+    "waypoint_radius": 0.01
   }
 ]

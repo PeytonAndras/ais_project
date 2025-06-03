@@ -874,6 +874,56 @@ stop_sim_btn = ttk.Button(sim_control_frame, text="Stop Simulation", command=lam
 stop_sim_btn.grid(row=3, column=0, columnspan=2, pady=10)
 stop_sim_btn.config(state=tk.DISABLED)
 
+def start_ship_simulation():
+    """Start the ship simulation"""
+    global ship_simulation_active, simulation_thread
+    
+    if ship_simulation_active:
+        messagebox.showinfo("Already Running", "Simulation is already running")
+        return
+    
+    # Get simulation parameters
+    channel_idx = int(sim_channel_var.get())
+    if channel_idx < 0 or channel_idx >= len(SIGNAL_PRESETS):
+        messagebox.showerror("Error", "Invalid channel selection")
+        return
+    
+    try:
+        interval = int(sim_interval_var.get())
+        if interval < 1:
+            raise ValueError("Interval must be at least 1 second")
+    except ValueError as e:
+        messagebox.showerror("Invalid Interval", str(e))
+        return
+    
+    # Get selected signal preset
+    signal_preset = SIGNAL_PRESETS[channel_idx]
+    
+    # Update UI
+    sim_status_var.set("Simulation Running...")
+    start_sim_btn.config(state=tk.DISABLED)
+    stop_sim_btn.config(state=tk.NORMAL)
+    
+    # Clear log
+    sim_log_text.configure(state='normal')
+    sim_log_text.delete(1.0, tk.END)
+    sim_log_text.configure(state='disabled')
+    
+    # Update log function
+    def update_sim_log(msg):
+        sim_log_text.configure(state='normal')
+        sim_log_text.insert(tk.END, f"{datetime.now().strftime('%H:%M:%S')}: {msg}\n")
+        sim_log_text.see(tk.END)
+        sim_log_text.configure(state='disabled')
+    
+    # Start simulation thread
+    simulation_thread = threading.Thread(
+        target=run_ship_simulation, 
+        args=(signal_preset, interval, update_sim_log),
+        daemon=True
+    )
+    simulation_thread.start()
+
 # Simulation log
 sim_log_frame = ttk.LabelFrame(sim_control_frame, text="Simulation Log", padding=10)
 sim_log_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=10)
@@ -949,6 +999,28 @@ ttk.Label(map_control_panel, text="points").grid(row=1, column=2, sticky=tk.W)
 show_tracks_var = tk.BooleanVar(value=True)
 show_tracks_check = ttk.Checkbutton(map_control_panel, text="Show Tracks", variable=show_tracks_var)
 show_tracks_check.grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=5)
+
+# Define track visibility toggle function
+def toggle_track_visibility():
+    """Toggle visibility of ship tracks on map"""
+    if not MAP_VIEW_AVAILABLE:
+        return
+        
+    show_tracks = show_tracks_var.get()
+    
+    for mmsi, track_line in track_lines.items():
+        if not show_tracks and track_line:
+            # Hide track
+            map_widget.delete(track_line)
+            track_lines[mmsi] = None
+        elif show_tracks and not track_line and mmsi in ship_tracks and len(ship_tracks[mmsi]) > 1:
+            # Show track
+            track_line = map_widget.set_path(
+                ship_tracks[mmsi],
+                width=2,
+                color=f"#{mmsi % 0xFFFFFF:06x}"
+            )
+            track_lines[mmsi] = track_line
 
 # Map type selection
 ttk.Label(map_control_panel, text="Map Type:").grid(row=3, column=0, sticky=tk.W, pady=10)
@@ -1191,18 +1263,31 @@ run_ship_simulation = enhanced_run_ship_simulation
 
 def start_ship_simulation_with_map():
     """Enhanced version that updates the map too"""
-    start_ship_simulation()
+def enhanced_stop_ship_simulation():
+    """Enhanced version that updates the map"""
+    global ship_simulation_active
+    ship_simulation_active = False
+    
+    original_stop_ship_simulation()
+    
     if MAP_VIEW_AVAILABLE:
-        # Center the map on ships when simulation starts
-        root.after(500, center_map_on_ships)  # Small delay to ensure positions are updated first
+        # Clear markers from map when simulation stops
+        for marker in ship_markers.values():
+            map_widget.delete(marker)
+        ship_markers.clear()
 
-# Replace the button commands
-start_sim_btn.config(command=start_ship_simulation_with_map)
-
-# Add a listener for track display toggle
-def toggle_track_visibility():
-    if not MAP_VIEW_AVAILABLE:
-        return
+def stop_ship_simulation():
+    """Stop the ship simulation"""
+    global ship_simulation_active
+    ship_simulation_active = False
+    
+    sim_status_var.set("Simulation Stopped")
+    start_sim_btn.config(state=tk.NORMAL)
+    stop_sim_btn.config(state=tk.DISABLED)
+    
+    # Reload ship configs
+    load_ship_configs()
+    update_ship_listbox()
         
     show_tracks = show_tracks_var.get()
     for mmsi, track_line in track_lines.items():
@@ -1408,11 +1493,19 @@ def add_new_ship():
     """Add a new ship to the simulation"""
     ship_dialog = tk.Toplevel(root)
     ship_dialog.title("Add New Ship")
-    ship_dialog.geometry("400x550")
+    ship_dialog.geometry("600x650")  # Made wider and taller for waypoint section
     
-    # Main frame
-    frame = ttk.Frame(ship_dialog, padding=10)
-    frame.pack(fill=tk.BOTH, expand=True)
+    # Main frame with notebook for tabs
+    main_frame = ttk.Frame(ship_dialog, padding=10)
+    main_frame.pack(fill=tk.BOTH, expand=True)
+    
+    # Create notebook (tabbed interface)
+    ship_notebook = ttk.Notebook(main_frame)
+    ship_notebook.pack(fill=tk.BOTH, expand=True, pady=5)
+    
+    # Tab 1: Basic ship info
+    basic_frame = ttk.Frame(ship_notebook, padding=10)
+    ship_notebook.add(basic_frame, text="Basic Info")
     
     # Ship fields
     fields = [
@@ -1433,10 +1526,116 @@ def add_new_ship():
     # Create fields
     vars_dict = {}
     for i, (label_text, var_name, default) in enumerate(fields):
-        ttk.Label(frame, text=label_text).grid(row=i, column=0, sticky=tk.W, pady=5)
+        ttk.Label(basic_frame, text=label_text).grid(row=i, column=0, sticky=tk.W, pady=5)
         var = tk.StringVar(value=default)
         vars_dict[var_name] = var
-        ttk.Entry(frame, textvariable=var).grid(row=i, column=1, sticky=(tk.W, tk.E), pady=5)
+        ttk.Entry(basic_frame, textvariable=var).grid(row=i, column=1, sticky=(tk.W, tk.E), pady=5)
+    
+    # Tab 2: Waypoints
+    waypoints_frame = ttk.Frame(ship_notebook, padding=10)
+    ship_notebook.add(waypoints_frame, text="Waypoints")
+    
+    # Waypoints list frame
+    waypoints_list_frame = ttk.LabelFrame(waypoints_frame, text="Waypoint List")
+    waypoints_list_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+    
+    # Create a frame for waypoints table with scrollbar
+    waypoints_table_frame = ttk.Frame(waypoints_list_frame)
+    waypoints_table_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+    
+    # Waypoints table (listbox or treeview)
+    waypoints_list = ttk.Treeview(waypoints_table_frame, columns=("ID", "Latitude", "Longitude"), 
+                                show="headings", height=10)
+    waypoints_list.heading("ID", text="Waypoint")
+    waypoints_list.heading("Latitude", text="Latitude")
+    waypoints_list.heading("Longitude", text="Longitude")
+    waypoints_list.column("ID", width=80)
+    waypoints_list.column("Latitude", width=120)
+    waypoints_list.column("Longitude", width=120)
+    waypoints_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    
+    # Add scrollbar
+    waypoints_scroll = ttk.Scrollbar(waypoints_table_frame, orient="vertical", command=waypoints_list.yview)
+    waypoints_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+    waypoints_list.configure(yscrollcommand=waypoints_scroll.set)
+    
+    # Waypoint actions frame
+    waypoints_action_frame = ttk.Frame(waypoints_list_frame)
+    waypoints_action_frame.pack(fill=tk.X, pady=5)
+    
+    # Waypoint input fields
+    waypoint_lat_var = tk.StringVar()
+    waypoint_lon_var = tk.StringVar()
+    
+    ttk.Label(waypoints_action_frame, text="Latitude:").pack(side=tk.LEFT, padx=5)
+    ttk.Entry(waypoints_action_frame, textvariable=waypoint_lat_var, width=10).pack(side=tk.LEFT, padx=5)
+    
+    ttk.Label(waypoints_action_frame, text="Longitude:").pack(side=tk.LEFT, padx=5)
+    ttk.Entry(waypoints_action_frame, textvariable=waypoint_lon_var, width=10).pack(side=tk.LEFT, padx=5)
+    
+    # Store waypoints
+    waypoints = []
+    
+    # Waypoint add/remove functions
+    def add_waypoint():
+        try:
+            lat = float(waypoint_lat_var.get())
+            lon = float(waypoint_lon_var.get())
+            
+            # Validate lat/lon
+            if lat < -90 or lat > 90:
+                raise ValueError("Latitude must be between -90 and 90")
+            if lon < -180 or lon > 180:
+                raise ValueError("Longitude must be between -180 and 180")
+            
+            # Check maximum waypoints
+            if len(waypoints) >= 20:
+                messagebox.showwarning("Maximum Waypoints", "Maximum 20 waypoints allowed")
+                return
+                
+            waypoints.append((lat, lon))
+            waypoint_id = len(waypoints)
+            waypoints_list.insert("", "end", values=(f"WP {waypoint_id}", f"{lat:.6f}", f"{lon:.6f}"))
+            
+            # Clear input fields
+            waypoint_lat_var.set("")
+            waypoint_lon_var.set("")
+            
+        except ValueError as e:
+            messagebox.showerror("Invalid Input", str(e))
+    
+    def remove_waypoint():
+        selected = waypoints_list.selection()
+        if not selected:
+            messagebox.showinfo("Selection Required", "Select a waypoint to remove")
+            return
+            
+        # Get index from the selection
+        for item in selected:
+            index = waypoints_list.index(item)
+            waypoints.pop(index)  # Remove from our waypoints list
+            waypoints_list.delete(item)  # Remove from treeview
+            
+        # Rebuild the list to get correct IDs
+        waypoints_list.delete(*waypoints_list.get_children())
+        for i, (lat, lon) in enumerate(waypoints):
+            waypoints_list.insert("", "end", values=(f"WP {i+1}", f"{lat:.6f}", f"{lon:.6f}"))
+            
+    def clear_waypoints():
+        if not messagebox.askyesno("Clear All", "Remove all waypoints?"):
+            return
+            
+        waypoints.clear()
+        waypoints_list.delete(*waypoints_list.get_children())
+    
+    # Add waypoint buttons
+    ttk.Button(waypoints_action_frame, text="Add", command=add_waypoint).pack(side=tk.LEFT, padx=5)
+    ttk.Button(waypoints_action_frame, text="Remove", command=remove_waypoint).pack(side=tk.LEFT, padx=5)
+    ttk.Button(waypoints_action_frame, text="Clear All", command=clear_waypoints).pack(side=tk.LEFT, padx=5)
+    
+    # Waypoint note
+    ttk.Label(waypoints_frame, text="Note: Ship will follow waypoints in order. Max 20 waypoints.", 
+             wraplength=400).pack(pady=10)
     
     # Save function
     def save_ship():
@@ -1470,6 +1669,18 @@ def add_new_ship():
                 destination=vars_dict["dest"].get()
             )
             
+            # Add waypoints to the ship
+            if waypoints:
+                new_ship.waypoints = waypoints.copy()
+                # Set current waypoint to first waypoint
+                new_ship.current_waypoint = 0
+                # Optionally set initial course toward first waypoint
+                if len(waypoints) > 0:
+                    first_wp = waypoints[0]
+                    bearing = calculate_initial_compass_bearing((lat, lon), first_wp)
+                    new_ship.course = bearing
+                    new_ship.heading = round(bearing)
+            
             # Add to configuration
             SHIP_CONFIGS.append(new_ship)
             update_ship_listbox()
@@ -1479,9 +1690,9 @@ def add_new_ship():
         except ValueError as e:
             messagebox.showerror("Invalid Input", str(e))
     
-    # Add buttons
-    btn_frame = ttk.Frame(frame)
-    btn_frame.grid(row=len(fields), column=0, columnspan=2, pady=20)
+    # Bottom button frame
+    btn_frame = ttk.Frame(main_frame)
+    btn_frame.pack(fill=tk.X, pady=10)
     
     ttk.Button(btn_frame, text="Save Ship", command=save_ship, 
               padding=(20, 10)).pack(side=tk.LEFT, padx=10)
@@ -1489,7 +1700,24 @@ def add_new_ship():
               padding=(20, 10)).pack(side=tk.LEFT, padx=10)
     
     # Set layout weights
-    frame.columnconfigure(1, weight=1)
+    basic_frame.columnconfigure(1, weight=1)
+
+def delete_selected_ships():
+    """Delete selected ships from the configuration"""
+    selected = ship_listbox.curselection()
+    if not selected:
+        messagebox.showerror("Error", "Select ship(s) to delete")
+        return
+    
+    # Confirm deletion
+    if messagebox.askyesno("Confirm Delete", 
+                          f"Delete {len(selected)} selected ship(s)?"):
+        # Delete in reverse order to avoid index shifts
+        for index in sorted(selected, reverse=True):
+            del SHIP_CONFIGS[index]
+        
+        update_ship_listbox()
+        save_ship_configs()
 
 def edit_selected_ship():
     """Edit an existing ship"""
@@ -1504,11 +1732,19 @@ def edit_selected_ship():
     # Create dialog
     ship_dialog = tk.Toplevel(root)
     ship_dialog.title(f"Edit: {ship.name}")
-    ship_dialog.geometry("400x500")
+    ship_dialog.geometry("600x650")  # Made wider and taller for waypoint section
     
-    # Main frame
-    frame = ttk.Frame(ship_dialog, padding=10)
-    frame.pack(fill=tk.BOTH, expand=True)
+    # Main frame with notebook for tabs
+    main_frame = ttk.Frame(ship_dialog, padding=10)
+    main_frame.pack(fill=tk.BOTH, expand=True)
+    
+    # Create notebook (tabbed interface)
+    ship_notebook = ttk.Notebook(main_frame)
+    ship_notebook.pack(fill=tk.BOTH, expand=True, pady=5)
+    
+    # Tab 1: Basic ship info
+    basic_frame = ttk.Frame(ship_notebook, padding=10)
+    ship_notebook.add(basic_frame, text="Basic Info")
     
     # Ship fields with current values
     fields = [
@@ -1529,10 +1765,128 @@ def edit_selected_ship():
     # Create fields
     vars_dict = {}
     for i, (label_text, var_name, default) in enumerate(fields):
-        ttk.Label(frame, text=label_text).grid(row=i, column=0, sticky=tk.W, pady=5)
+        ttk.Label(basic_frame, text=label_text).grid(row=i, column=0, sticky=tk.W, pady=5)
         var = tk.StringVar(value=default)
         vars_dict[var_name] = var
-        ttk.Entry(frame, textvariable=var).grid(row=i, column=1, sticky=(tk.W, tk.E), pady=5)
+        ttk.Entry(basic_frame, textvariable=var).grid(row=i, column=1, sticky=(tk.W, tk.E), pady=5)
+    
+    # Tab 2: Waypoints
+    waypoints_frame = ttk.Frame(ship_notebook, padding=10)
+    ship_notebook.add(waypoints_frame, text="Waypoints")
+    
+    # Waypoints list frame
+    waypoints_list_frame = ttk.LabelFrame(waypoints_frame, text="Waypoint List")
+    waypoints_list_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+    
+    # Create a frame for waypoints table with scrollbar
+    waypoints_table_frame = ttk.Frame(waypoints_list_frame)
+    waypoints_table_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+    
+    # Waypoints table (treeview)
+    waypoints_list = ttk.Treeview(waypoints_table_frame, columns=("ID", "Latitude", "Longitude"), 
+                                show="headings", height=10)
+    waypoints_list.heading("ID", text="Waypoint")
+    waypoints_list.heading("Latitude", text="Latitude")
+    waypoints_list.heading("Longitude", text="Longitude")
+    waypoints_list.column("ID", width=80)
+    waypoints_list.column("Latitude", width=120)
+    waypoints_list.column("Longitude", width=120)
+    waypoints_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    
+    # Add scrollbar
+    waypoints_scroll = ttk.Scrollbar(waypoints_table_frame, orient="vertical", command=waypoints_list.yview)
+    waypoints_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+    waypoints_list.configure(yscrollcommand=waypoints_scroll.set)
+    
+    # Store waypoints
+    waypoints = getattr(ship, 'waypoints', [])[:]  # Copy the existing waypoints
+    
+    # Fill waypoints table with existing waypoints
+    for i, waypoint in enumerate(waypoints):
+        waypoints_list.insert("", "end", values=(f"WP {i+1}", f"{waypoint[0]:.6f}", f"{waypoint[1]:.6f}"))
+    
+    # Waypoint actions frame
+    waypoints_action_frame = ttk.Frame(waypoints_list_frame)
+    waypoints_action_frame.pack(fill=tk.X, pady=5)
+    
+    # Waypoint input fields
+    waypoint_lat_var = tk.StringVar()
+    waypoint_lon_var = tk.StringVar()
+    
+    ttk.Label(waypoints_action_frame, text="Latitude:").pack(side=tk.LEFT, padx=5)
+    ttk.Entry(waypoints_action_frame, textvariable=waypoint_lat_var, width=10).pack(side=tk.LEFT, padx=5)
+    
+    ttk.Label(waypoints_action_frame, text="Longitude:").pack(side=tk.LEFT, padx=5)
+    ttk.Entry(waypoints_action_frame, textvariable=waypoint_lon_var, width=10).pack(side=tk.LEFT, padx=5)
+    
+    # Waypoint add/remove functions for edit_selected_ship function
+    def add_waypoint():
+        try:
+            lat = float(waypoint_lat_var.get())
+            lon = float(waypoint_lon_var.get())
+            
+            # Validate lat/lon
+            if lat < -90 or lat > 90:
+                raise ValueError("Latitude must be between -90 and 90")
+            if lon < -180 or lon > 180:
+                raise ValueError("Longitude must be between -180 and 180")
+            
+            # Check maximum waypoints
+            if len(waypoints) >= 20:
+                messagebox.showwarning("Maximum Waypoints", "Maximum 20 waypoints allowed")
+                return
+                
+            waypoints.append((lat, lon))
+            waypoint_id = len(waypoints)
+            waypoints_list.insert("", "end", values=(f"WP {waypoint_id}", f"{lat:.6f}", f"{lon:.6f}"))
+            
+            # Clear input fields
+            waypoint_lat_var.set("")
+            waypoint_lon_var.set("")
+            
+        except ValueError as e:
+            messagebox.showerror("Invalid Input", str(e))
+    
+    def remove_waypoint():
+        selected = waypoints_list.selection()
+        if not selected:
+            messagebox.showinfo("Selection Required", "Select a waypoint to remove")
+            return
+            
+        # Get index from the selection
+        for item in selected:
+            index = waypoints_list.index(item)
+            waypoints.pop(index)  # Remove from our waypoints list
+            waypoints_list.delete(item)  # Remove from treeview
+            
+        # Rebuild the list to get correct IDs
+        waypoints_list.delete(*waypoints_list.get_children())
+        for i, (lat, lon) in enumerate(waypoints):
+            waypoints_list.insert("", "end", values=(f"WP {i+1}", f"{lat:.6f}", f"{lon:.6f}"))
+            
+    def clear_waypoints():
+        if not messagebox.askyesno("Clear All", "Remove all waypoints?"):
+            return
+            
+        waypoints.clear()
+        waypoints_list.delete(*waypoints_list.get_children())
+    
+    # Add waypoint buttons
+    ttk.Button(waypoints_action_frame, text="Add", command=add_waypoint).pack(side=tk.LEFT, padx=5)
+    ttk.Button(waypoints_action_frame, text="Remove", command=remove_waypoint).pack(side=tk.LEFT, padx=5)
+    ttk.Button(waypoints_action_frame, text="Clear All", command=clear_waypoints).pack(side=tk.LEFT, padx=5)
+    
+    # Waypoint note
+    ttk.Label(waypoints_frame, text="Note: Ship will follow waypoints in order. Max 20 waypoints.", 
+             wraplength=400).pack(pady=10)
+    
+    # Current waypoint info
+    if hasattr(ship, 'current_waypoint') and ship.current_waypoint != -1 and ship.waypoints:
+        current_wp_txt = f"Current active waypoint: {ship.current_waypoint + 1} of {len(ship.waypoints)}"
+    else:
+        current_wp_txt = "No active waypoint route"
+        
+    ttk.Label(waypoints_frame, text=current_wp_txt).pack(pady=5)
     
     # Update function
     def update_ship():
@@ -1569,6 +1923,20 @@ def edit_selected_ship():
             ship.destination = vars_dict["dest"].get()
             ship.heading = round(ship.course)
             
+            # Update waypoints
+            ship.waypoints = waypoints.copy()
+            
+            # Reset current_waypoint if waypoints were changed
+            if waypoints:
+                # If ship had no waypoints before or completed previous route
+                if not hasattr(ship, 'current_waypoint') or ship.current_waypoint == -1 or ship.current_waypoint >= len(ship.waypoints):
+                    ship.current_waypoint = 0
+                # If existing route, keep current waypoint if valid
+                elif ship.current_waypoint >= len(waypoints):
+                    ship.current_waypoint = 0
+            else:
+                ship.current_waypoint = -1  # No waypoints
+            
             update_ship_listbox()
             save_ship_configs()
             ship_dialog.destroy()
@@ -1576,109 +1944,45 @@ def edit_selected_ship():
         except ValueError as e:
             messagebox.showerror("Invalid Input", str(e))
     
-    # Add buttons
-    btn_frame = ttk.Frame(frame)
-    btn_frame.grid(row=len(fields), column=0, columnspan=2, pady=10)
+    # Bottom button frame
+    btn_frame = ttk.Frame(main_frame)
+    btn_frame.pack(fill=tk.X, pady=10)
     
-    ttk.Button(btn_frame, text="Update Ship", command=update_ship).pack(side=tk.LEFT, padx=5)
-    ttk.Button(btn_frame, text="Cancel", command=ship_dialog.destroy).pack(side=tk.LEFT, padx=5)
+    ttk.Button(btn_frame, text="Update Ship", command=update_ship, 
+              padding=(20, 10)).pack(side=tk.LEFT, padx=10)
+    ttk.Button(btn_frame, text="Cancel", command=ship_dialog.destroy, 
+              padding=(20, 10)).pack(side=tk.LEFT, padx=10)
+    
+    # Set layout weights
+    basic_frame.columnconfigure(1, weight=1)
 
-def delete_selected_ships():
-    """Delete selected ships"""
-    selected = ship_listbox.curselection()
-    if not selected:
-        messagebox.showerror("Error", "Select ships to delete")
-        return
-    
-    # Confirm deletion
-    if not messagebox.askyesno("Confirm Delete", f"Delete {len(selected)} selected ships?"):
-        return
-        
-    # Delete ships (in reverse to avoid index issues)
-    for idx in sorted(list(selected), reverse=True):
-        del SHIP_CONFIGS[idx]
-    
-    update_ship_listbox()
-    save_ship_configs()
-
-def start_ship_simulation():
-    """Start the ship simulation"""
-    global simulation_thread, ship_simulation_active
-    
-    # Get channel settings
-    try:
-        selected_index = int(sim_channel_var.get())
-        signal_preset = SIGNAL_PRESETS[selected_index]
-    except (ValueError, IndexError):
-        messagebox.showerror("Error", "Invalid AIS channel selection")
-        return
-    
-    # Get interval
-    try:
-        interval = max(5, float(sim_interval_var.get()))
-    except ValueError:
-        interval = 10
-    
-    # Get selected ships
-    selected_indices = ship_listbox.curselection()
-    if not selected_indices:
-        messagebox.showerror("Error", "Select at least one ship")
-        return
-    
-    # Create ship subset
-    active_ships = [SHIP_CONFIGS[i] for i in selected_indices]
-    
-    # Confirm
-    if not messagebox.askyesno("Start Simulation", 
-                             f"Start simulation of {len(active_ships)} ships?\n"
-                             f"Transmitting on {signal_preset['name']} every {interval} seconds.\n\n"
-                             "Ensure you have proper authorization to transmit."):
-        return
-    
-    # Set active ships
-    global SHIP_CONFIGS
-    SHIP_CONFIGS = active_ships
-    
-    # Update UI
-    sim_status_var.set("Simulation Active")
-    start_sim_btn.config(state=tk.DISABLED)
-    stop_sim_btn.config(state=tk.NORMAL)
-    
-    # Log update function
-    def update_sim_log(msg):
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        sim_log_text.configure(state='normal')
-        sim_log_text.insert(tk.END, f"[{timestamp}] {msg}\n")
-        sim_log_text.see(tk.END)
-        sim_log_text.configure(state='disabled')
-        sim_status_var.set(f"Simulation: {msg}")
-    
-    # Start simulation thread
-    ship_simulation_active = True
-    simulation_thread = threading.Thread(
-        target=run_ship_simulation, 
-        args=(signal_preset, interval, update_sim_log),
-        daemon=True
-    )
-    simulation_thread.start()
-
-def stop_ship_simulation():
-    """Stop the ship simulation"""
-    global ship_simulation_active
-    ship_simulation_active = False
-    
-    sim_status_var.set("Simulation Stopped")
-    start_sim_btn.config(state=tk.NORMAL)
-    stop_sim_btn.config(state=tk.DISABLED)
-    
-    # Reload ship configs
-    load_ship_configs()
-    update_ship_listbox()
-
-# Load ship configurations and update the listbox
+# Initialize by loading ship configurations
 load_ship_configs()
+
+# Update ship listbox with loaded ships
 update_ship_listbox()
 
-# Start the GUI
-root.mainloop()
+# Set tab to ship simulation by default
+notebook.select(2)  # Index 2 corresponds to the Ship Simulation tab
 
+# Center the window on screen
+window_width = 800
+window_height = 600
+screen_width = root.winfo_screenwidth()
+screen_height = root.winfo_screenheight()
+center_x = int((screen_width - window_width) / 2)
+center_y = int((screen_height - window_height) / 2)
+root.geometry(f"{window_width}x{window_height}+{center_x}+{center_y}")
+
+# Make sure the UI persists until closed
+if __name__ == "__main__":
+    try:
+        root.mainloop()
+    except KeyboardInterrupt:
+        # Handle any cleanup needed when closing with Ctrl+C
+        if ship_simulation_active:
+            ship_simulation_active = False
+        
+        # Save ship configurations on exit
+        save_ship_configs()
+        print("Program terminated.")
