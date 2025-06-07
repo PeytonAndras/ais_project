@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
-this is the old implementation of the entire main program: UI, transmission, and ship simulation
+this is the new implementation of the entire main program UI, 
+
+still has the old : transmission, and ship simulation
 however it is the old encoding/decoding and transmission code.. leaving untouched until proper
 tranmission code is achieved
 
