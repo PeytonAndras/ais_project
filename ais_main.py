@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """
+@ author: Peyton Andras @ Louisiana State University 2025
+
 this is the new implementation of the entire main program UI, 
 
 still has the old : transmission, and ship simulation
