@@ -1497,13 +1497,11 @@ def add_new_ship():
     """Add a new ship to the simulation"""
     ship_dialog = tk.Toplevel(root)
     ship_dialog.title("Add New Ship")
-    ship_dialog.geometry("600x650")  # Made wider and taller for waypoint section
+    ship_dialog.geometry("600x650")
     
-    # Main frame with notebook for tabs
     main_frame = ttk.Frame(ship_dialog, padding=10)
     main_frame.pack(fill=tk.BOTH, expand=True)
     
-    # Create notebook (tabbed interface)
     ship_notebook = ttk.Notebook(main_frame)
     ship_notebook.pack(fill=tk.BOTH, expand=True, pady=5)
     
@@ -1511,7 +1509,6 @@ def add_new_ship():
     basic_frame = ttk.Frame(ship_notebook, padding=10)
     ship_notebook.add(basic_frame, text="Basic Info")
     
-    # Ship fields
     fields = [
         ("Name:", "ship_name", "Vessel 1"),
         ("MMSI:", "mmsi", "366000001"),
@@ -1526,8 +1523,6 @@ def add_new_ship():
         ("Rate of Turn:", "turn", "0"),
         ("Destination:", "dest", "NEW YORK")
     ]
-    
-    # Create fields
     vars_dict = {}
     for i, (label_text, var_name, default) in enumerate(fields):
         ttk.Label(basic_frame, text=label_text).grid(row=i, column=0, sticky=tk.W, pady=5)
@@ -1539,17 +1534,14 @@ def add_new_ship():
     waypoints_frame = ttk.Frame(ship_notebook, padding=10)
     ship_notebook.add(waypoints_frame, text="Waypoints")
     
-    # Waypoints list frame
     waypoints_list_frame = ttk.LabelFrame(waypoints_frame, text="Waypoint List")
     waypoints_list_frame.pack(fill=tk.BOTH, expand=True, pady=5)
     
-    # Create a frame for waypoints table with scrollbar
     waypoints_table_frame = ttk.Frame(waypoints_list_frame)
     waypoints_table_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
     
-    # Waypoints table (listbox or treeview)
     waypoints_list = ttk.Treeview(waypoints_table_frame, columns=("ID", "Latitude", "Longitude"), 
-                                show="headings", height=10)
+                                  show="headings", height=10)
     waypoints_list.heading("ID", text="Waypoint")
     waypoints_list.heading("Latitude", text="Latitude")
     waypoints_list.heading("Longitude", text="Longitude")
@@ -1558,89 +1550,113 @@ def add_new_ship():
     waypoints_list.column("Longitude", width=120)
     waypoints_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     
-    # Add scrollbar
     waypoints_scroll = ttk.Scrollbar(waypoints_table_frame, orient="vertical", command=waypoints_list.yview)
     waypoints_scroll.pack(side=tk.RIGHT, fill=tk.Y)
     waypoints_list.configure(yscrollcommand=waypoints_scroll.set)
     
-    # Waypoint actions frame
+    waypoints = []
+    waypoint_markers = []  # <-- FIX: define before use
+    
     waypoints_action_frame = ttk.Frame(waypoints_list_frame)
     waypoints_action_frame.pack(fill=tk.X, pady=5)
     
-    # Waypoint input fields
     waypoint_lat_var = tk.StringVar()
     waypoint_lon_var = tk.StringVar()
     
     ttk.Label(waypoints_action_frame, text="Latitude:").pack(side=tk.LEFT, padx=5)
     ttk.Entry(waypoints_action_frame, textvariable=waypoint_lat_var, width=10).pack(side=tk.LEFT, padx=5)
-    
     ttk.Label(waypoints_action_frame, text="Longitude:").pack(side=tk.LEFT, padx=5)
     ttk.Entry(waypoints_action_frame, textvariable=waypoint_lon_var, width=10).pack(side=tk.LEFT, padx=5)
-    
-    # Store waypoints
-    waypoints = []
-    
-    # Waypoint add/remove functions
+
+    if MAP_VIEW_AVAILABLE:
+        waypoint_map_frame = ttk.LabelFrame(waypoints_frame, text="Pick Waypoint on Map", padding=5)
+        waypoint_map_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        waypoint_map = tkintermapview.TkinterMapView(waypoint_map_frame, width=400, height=250, corner_radius=0)
+        waypoint_map.pack(fill=tk.BOTH, expand=True)
+        try:
+            lat0 = float(waypoint_lat_var.get()) if waypoint_lat_var.get() else 40.7128
+            lon0 = float(waypoint_lon_var.get()) if waypoint_lon_var.get() else -74.0060
+        except Exception:
+            lat0, lon0 = 40.7128, -74.0060
+        waypoint_map.set_position(lat0, lon0)
+        waypoint_map.set_zoom(10)
+        waypoint_marker = [None]
+        def on_waypoint_map_click(coords):
+            lat, lon = coords
+            waypoint_lat_var.set(f"{lat:.6f}")
+            waypoint_lon_var.set(f"{lon:.6f}")
+            if waypoint_marker[0]:
+                waypoint_map.delete(waypoint_marker[0])
+            waypoint_marker[0] = waypoint_map.set_marker(lat, lon, text="Waypoint")
+            sim_status_var.set("Ready")
+        waypoint_map.add_left_click_map_command(on_waypoint_map_click)
+        def center_waypoint_map():
+            try:
+                lat = float(waypoint_lat_var.get())
+                lon = float(waypoint_lon_var.get())
+                waypoint_map.set_position(lat, lon)
+            except Exception:
+                pass
+        ttk.Button(waypoints_action_frame, text="Center Map", command=center_waypoint_map).pack(side=tk.LEFT, padx=5)
+    else:
+        ttk.Label(waypoints_frame, text="Map not available. Install tkintermapview for map picking.").pack(pady=10)
+
     def add_waypoint():
         try:
             lat = float(waypoint_lat_var.get())
             lon = float(waypoint_lon_var.get())
-            
-            # Validate lat/lon
             if lat < -90 or lat > 90:
                 raise ValueError("Latitude must be between -90 and 90")
             if lon < -180 or lon > 180:
                 raise ValueError("Longitude must be between -180 and 180")
-            
-            # Check maximum waypoints
-            if len(waypoints) >= 20:
-                messagebox.showwarning("Maximum Waypoints", "Maximum 20 waypoints allowed")
-                return
-                
             waypoints.append((lat, lon))
-            waypoint_id = len(waypoints)
-            waypoints_list.insert("", "end", values=(f"WP {waypoint_id}", f"{lat:.6f}", f"{lon:.6f}"))
-            
-            # Clear input fields
+            waypoints_list.insert("", "end", values=(f"WP {len(waypoints)}", f"{lat:.6f}", f"{lon:.6f}"))
             waypoint_lat_var.set("")
             waypoint_lon_var.set("")
-            
+            # Add marker for this waypoint on the map
+            if MAP_VIEW_AVAILABLE:
+                marker = waypoint_map.set_marker(lat, lon, text=f"WP {len(waypoints)}")
+                waypoint_markers.append(marker)
         except ValueError as e:
             messagebox.showerror("Invalid Input", str(e))
-    
+
     def remove_waypoint():
         selected = waypoints_list.selection()
         if not selected:
-            messagebox.showinfo("Selection Required", "Select a waypoint to remove")
+            messagebox.showerror("Error", "Select a waypoint to remove")
             return
-            
-        # Get index from the selection
-        for item in selected:
-            index = waypoints_list.index(item)
-            waypoints.pop(index)  # Remove from our waypoints list
-            waypoints_list.delete(item)  # Remove from treeview
-            
-        # Rebuild the list to get correct IDs
-        waypoints_list.delete(*waypoints_list.get_children())
-        for i, (lat, lon) in enumerate(waypoints):
-            waypoints_list.insert("", "end", values=(f"WP {i+1}", f"{lat:.6f}", f"{lon:.6f}"))
-            
+        item = waypoints_list.item(selected[0])
+        wp_id = item['values'][0]
+        try:
+            index = int(wp_id.split(" ")[1]) - 1
+            if 0 <= index < len(waypoints):
+                waypoints.pop(index)
+                waypoints_list.delete(*waypoints_list.get_children())
+                if MAP_VIEW_AVAILABLE:
+                    for m in waypoint_markers:
+                        waypoint_map.delete(m)
+                    waypoint_markers.clear()
+                    for i, wp in enumerate(waypoints):
+                        marker = waypoint_map.set_marker(wp[0], wp[1], text=f"WP {i+1}")
+                        waypoint_markers.append(marker)
+                for i, wp in enumerate(waypoints):
+                    waypoints_list.insert("", "end", values=(f"WP {i+1}", f"{wp[0]:.6f}", f"{wp[1]:.6f}"))
+        except (ValueError, IndexError) as e:
+            messagebox.showerror("Error", f"Could not remove waypoint: {str(e)}")
+
     def clear_waypoints():
-        if not messagebox.askyesno("Clear All", "Remove all waypoints?"):
-            return
-            
-        waypoints.clear()
-        waypoints_list.delete(*waypoints_list.get_children())
-    
-    # Add waypoint buttons
+        if messagebox.askyesno("Confirm", "Remove all waypoints?"):
+            waypoints.clear()
+            waypoints_list.delete(*waypoints_list.get_children())
+            if MAP_VIEW_AVAILABLE:
+                for m in waypoint_markers:
+                    waypoint_map.delete(m)
+                waypoint_markers.clear()
+
     ttk.Button(waypoints_action_frame, text="Add", command=add_waypoint).pack(side=tk.LEFT, padx=5)
     ttk.Button(waypoints_action_frame, text="Remove", command=remove_waypoint).pack(side=tk.LEFT, padx=5)
     ttk.Button(waypoints_action_frame, text="Clear All", command=clear_waypoints).pack(side=tk.LEFT, padx=5)
-    
-    # Waypoint note
-    ttk.Label(waypoints_frame, text="Note: Ship will follow waypoints in order. Max 20 waypoints.", 
-             wraplength=400).pack(pady=10)
-    
+    ttk.Label(waypoints_frame, text="Note: Ship will follow waypoints in order. Max 20 waypoints.", wraplength=400).pack(pady=10)
     # Save function
     def save_ship():
         try:
@@ -1736,21 +1752,17 @@ def edit_selected_ship():
     # Create dialog
     ship_dialog = tk.Toplevel(root)
     ship_dialog.title(f"Edit: {ship.name}")
-    ship_dialog.geometry("600x650")  # Made wider and taller for waypoint section
+    ship_dialog.geometry("600x650")
     
-    # Main frame with notebook for tabs
     main_frame = ttk.Frame(ship_dialog, padding=10)
     main_frame.pack(fill=tk.BOTH, expand=True)
     
-    # Create notebook (tabbed interface)
     ship_notebook = ttk.Notebook(main_frame)
     ship_notebook.pack(fill=tk.BOTH, expand=True, pady=5)
     
-    # Tab 1: Basic ship info
     basic_frame = ttk.Frame(ship_notebook, padding=10)
     ship_notebook.add(basic_frame, text="Basic Info")
     
-    # Ship fields with current values
     fields = [
         ("Name:", "ship_name", ship.name),
         ("MMSI:", "mmsi", str(ship.mmsi)),
@@ -1765,8 +1777,6 @@ def edit_selected_ship():
         ("Rate of Turn:", "turn", str(ship.turn)),
         ("Destination:", "dest", ship.destination)
     ]
-    
-    # Create fields
     vars_dict = {}
     for i, (label_text, var_name, default) in enumerate(fields):
         ttk.Label(basic_frame, text=label_text).grid(row=i, column=0, sticky=tk.W, pady=5)
@@ -1778,17 +1788,14 @@ def edit_selected_ship():
     waypoints_frame = ttk.Frame(ship_notebook, padding=10)
     ship_notebook.add(waypoints_frame, text="Waypoints")
     
-    # Waypoints list frame
     waypoints_list_frame = ttk.LabelFrame(waypoints_frame, text="Waypoint List")
     waypoints_list_frame.pack(fill=tk.BOTH, expand=True, pady=5)
     
-    # Create a frame for waypoints table with scrollbar
     waypoints_table_frame = ttk.Frame(waypoints_list_frame)
     waypoints_table_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
     
-    # Waypoints table (treeview)
     waypoints_list = ttk.Treeview(waypoints_table_frame, columns=("ID", "Latitude", "Longitude"), 
-                                show="headings", height=10)
+                                  show="headings", height=10)
     waypoints_list.heading("ID", text="Waypoint")
     waypoints_list.heading("Latitude", text="Latitude")
     waypoints_list.heading("Longitude", text="Longitude")
@@ -1797,101 +1804,116 @@ def edit_selected_ship():
     waypoints_list.column("Longitude", width=120)
     waypoints_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     
-    # Add scrollbar
     waypoints_scroll = ttk.Scrollbar(waypoints_table_frame, orient="vertical", command=waypoints_list.yview)
     waypoints_scroll.pack(side=tk.RIGHT, fill=tk.Y)
     waypoints_list.configure(yscrollcommand=waypoints_scroll.set)
     
-    # Store waypoints
     waypoints = getattr(ship, 'waypoints', [])[:]  # Copy the existing waypoints
+    waypoint_markers = []  # <-- FIX: define before use
     
     # Fill waypoints table with existing waypoints
     for i, waypoint in enumerate(waypoints):
         waypoints_list.insert("", "end", values=(f"WP {i+1}", f"{waypoint[0]:.6f}", f"{waypoint[1]:.6f}"))
     
-    # Waypoint actions frame
     waypoints_action_frame = ttk.Frame(waypoints_list_frame)
     waypoints_action_frame.pack(fill=tk.X, pady=5)
     
-    # Waypoint input fields
     waypoint_lat_var = tk.StringVar()
     waypoint_lon_var = tk.StringVar()
     
     ttk.Label(waypoints_action_frame, text="Latitude:").pack(side=tk.LEFT, padx=5)
     ttk.Entry(waypoints_action_frame, textvariable=waypoint_lat_var, width=10).pack(side=tk.LEFT, padx=5)
-    
     ttk.Label(waypoints_action_frame, text="Longitude:").pack(side=tk.LEFT, padx=5)
     ttk.Entry(waypoints_action_frame, textvariable=waypoint_lon_var, width=10).pack(side=tk.LEFT, padx=5)
-    
-    # Waypoint add/remove functions for edit_selected_ship function
+    if MAP_VIEW_AVAILABLE:
+        waypoint_map_frame = ttk.LabelFrame(waypoints_frame, text="Pick Waypoint on Map", padding=5)
+        waypoint_map_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        waypoint_map = tkintermapview.TkinterMapView(waypoint_map_frame, width=400, height=250, corner_radius=0)
+        waypoint_map.pack(fill=tk.BOTH, expand=True)
+        try:
+            lat0 = float(waypoint_lat_var.get()) if waypoint_lat_var.get() else 40.7128
+            lon0 = float(waypoint_lon_var.get()) if waypoint_lon_var.get() else -74.0060
+        except Exception:
+            lat0, lon0 = 40.7128, -74.0060
+        waypoint_map.set_position(lat0, lon0)
+        waypoint_map.set_zoom(10)
+        waypoint_marker = [None]
+        def on_waypoint_map_click(coords):
+            lat, lon = coords
+            waypoint_lat_var.set(f"{lat:.6f}")
+            waypoint_lon_var.set(f"{lon:.6f}")
+            if waypoint_marker[0]:
+                waypoint_map.delete(waypoint_marker[0])
+            waypoint_marker[0] = waypoint_map.set_marker(lat, lon, text="Waypoint")
+            sim_status_var.set("Ready")
+        waypoint_map.add_left_click_map_command(on_waypoint_map_click)
+        def center_waypoint_map():
+            try:
+                lat = float(waypoint_lat_var.get())
+                lon = float(waypoint_lon_var.get())
+                waypoint_map.set_position(lat, lon)
+            except Exception:
+                pass
+        ttk.Button(waypoints_action_frame, text="Center Map", command=center_waypoint_map).pack(side=tk.LEFT, padx=5)
+        # Draw existing waypoints as markers
+        for i, wp in enumerate(waypoints):
+            marker = waypoint_map.set_marker(wp[0], wp[1], text=f"WP {i+1}")
+            waypoint_markers.append(marker)
+    else:
+        ttk.Label(waypoints_frame, text="Map not available. Install tkintermapview for map picking.").pack(pady=10)
+
     def add_waypoint():
         try:
             lat = float(waypoint_lat_var.get())
             lon = float(waypoint_lon_var.get())
-            
-            # Validate lat/lon
             if lat < -90 or lat > 90:
                 raise ValueError("Latitude must be between -90 and 90")
             if lon < -180 or lon > 180:
                 raise ValueError("Longitude must be between -180 and 180")
-            
-            # Check maximum waypoints
-            if len(waypoints) >= 20:
-                messagebox.showwarning("Maximum Waypoints", "Maximum 20 waypoints allowed")
-                return
-                
             waypoints.append((lat, lon))
-            waypoint_id = len(waypoints)
-            waypoints_list.insert("", "end", values=(f"WP {waypoint_id}", f"{lat:.6f}", f"{lon:.6f}"))
-            
-            # Clear input fields
+            waypoints_list.insert("", "end", values=(f"WP {len(waypoints)}", f"{lat:.6f}", f"{lon:.6f}"))
             waypoint_lat_var.set("")
             waypoint_lon_var.set("")
-            
+            if MAP_VIEW_AVAILABLE:
+                marker = waypoint_map.set_marker(lat, lon, text=f"WP {len(waypoints)}")
+                waypoint_markers.append(marker)
         except ValueError as e:
             messagebox.showerror("Invalid Input", str(e))
-    
     def remove_waypoint():
         selected = waypoints_list.selection()
         if not selected:
-            messagebox.showinfo("Selection Required", "Select a waypoint to remove")
+            messagebox.showerror("Error", "Select a waypoint to remove")
             return
-            
-        # Get index from the selection
-        for item in selected:
-            index = waypoints_list.index(item)
-            waypoints.pop(index)  # Remove from our waypoints list
-            waypoints_list.delete(item)  # Remove from treeview
-            
-        # Rebuild the list to get correct IDs
-        waypoints_list.delete(*waypoints_list.get_children())
-        for i, (lat, lon) in enumerate(waypoints):
-            waypoints_list.insert("", "end", values=(f"WP {i+1}", f"{lat:.6f}", f"{lon:.6f}"))
-            
+        item = waypoints_list.item(selected[0])
+        wp_id = item['values'][0]
+        try:
+            index = int(wp_id.split(" ")[1]) - 1
+            if 0 <= index < len(waypoints):
+                waypoints.pop(index)
+                waypoints_list.delete(*waypoints_list.get_children())
+                if MAP_VIEW_AVAILABLE:
+                    for m in waypoint_markers:
+                        waypoint_map.delete(m)
+                    waypoint_markers.clear()
+                    for i, wp in enumerate(waypoints):
+                        marker = waypoint_map.set_marker(wp[0], wp[1], text=f"WP {i+1}")
+                        waypoint_markers.append(marker)
+                for i, wp in enumerate(waypoints):
+                    waypoints_list.insert("", "end", values=(f"WP {i+1}", f"{wp[0]:.6f}", f"{wp[1]:.6f}"))
+        except (ValueError, IndexError) as e:
+            messagebox.showerror("Error", f"Could not remove waypoint: {str(e)}")
     def clear_waypoints():
-        if not messagebox.askyesno("Clear All", "Remove all waypoints?"):
-            return
-            
-        waypoints.clear()
-        waypoints_list.delete(*waypoints_list.get_children())
-    
-    # Add waypoint buttons
+        if messagebox.askyesno("Confirm", "Remove all waypoints?"):
+            waypoints.clear()
+            waypoints_list.delete(*waypoints_list.get_children())
+            if MAP_VIEW_AVAILABLE:
+                for m in waypoint_markers:
+                    waypoint_map.delete(m)
+                waypoint_markers.clear()
     ttk.Button(waypoints_action_frame, text="Add", command=add_waypoint).pack(side=tk.LEFT, padx=5)
     ttk.Button(waypoints_action_frame, text="Remove", command=remove_waypoint).pack(side=tk.LEFT, padx=5)
     ttk.Button(waypoints_action_frame, text="Clear All", command=clear_waypoints).pack(side=tk.LEFT, padx=5)
-    
-    # Waypoint note
-    ttk.Label(waypoints_frame, text="Note: Ship will follow waypoints in order. Max 20 waypoints.", 
-             wraplength=400).pack(pady=10)
-    
-    # Current waypoint info
-    if hasattr(ship, 'current_waypoint') and ship.current_waypoint != -1 and ship.waypoints:
-        current_wp_txt = f"Current active waypoint: {ship.current_waypoint + 1} of {len(ship.waypoints)}"
-    else:
-        current_wp_txt = "No active waypoint route"
-        
-    ttk.Label(waypoints_frame, text=current_wp_txt).pack(pady=5)
-    
+    ttk.Label(waypoints_frame, text="Note: Ship will follow waypoints in order. Max 20 waypoints.", wraplength=400).pack(pady=10)
     # Update function
     def update_ship():
         try:
@@ -1932,12 +1954,7 @@ def edit_selected_ship():
             
             # Reset current_waypoint if waypoints were changed
             if waypoints:
-                # If ship had no waypoints before or completed previous route
-                if not hasattr(ship, 'current_waypoint') or ship.current_waypoint == -1 or ship.current_waypoint >= len(ship.waypoints):
-                    ship.current_waypoint = 0
-                # If existing route, keep current waypoint if valid
-                elif ship.current_waypoint >= len(waypoints):
-                    ship.current_waypoint = 0
+                ship.current_waypoint = 0
             else:
                 ship.current_waypoint = -1  # No waypoints
             
