@@ -30,6 +30,7 @@ import tempfile
 # Add map visualization libraries
 try:
     import tkintermapview  # Main map widget
+    tkintermapview.TkinterMapView.USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
     MAP_VIEW_AVAILABLE = True
     print("tkintermapview imported successfully")
 except ImportError as e:
@@ -991,6 +992,37 @@ ttk.Label(main_frame, textvariable=status_var, relief=tk.SUNKEN, anchor=tk.W).pa
 map_frame = ttk.Frame(notebook, padding=10)
 notebook.add(map_frame, text="Map View")
 
+# --- Map Search Bar ---
+if MAP_VIEW_AVAILABLE:
+    search_frame = ttk.Frame(map_frame)
+    search_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 5))
+    search_var = tk.StringVar()
+    ttk.Label(search_frame, text="Search Location:").pack(side=tk.LEFT, padx=5)
+    search_entry = ttk.Entry(search_frame, textvariable=search_var, width=30)
+    search_entry.pack(side=tk.LEFT, padx=5)
+    def do_search(*args):
+        query = search_var.get().strip()
+        if not query:
+            return
+        # Try to parse as lat,lon first
+        try:
+            if ',' in query:
+                lat, lon = map(float, query.split(','))
+                map_widget.set_position(lat, lon)
+                map_widget.set_zoom(12)
+                return
+        except Exception:
+            pass
+        # Otherwise, use geocoding
+        try:
+            result = map_widget.set_address(query)
+            if result:
+                map_widget.set_zoom(12)
+        except Exception as e:
+            messagebox.showerror("Search Error", f"Could not find location: {e}")
+    ttk.Button(search_frame, text="Go", command=do_search).pack(side=tk.LEFT, padx=5)
+    search_entry.bind('<Return>', lambda event: do_search())
+
 # Ship tracking variables
 ship_markers = {}  # Dictionary to store ship markers on map
 ship_tracks = {}   # Dictionary to store historical positions for each ship
@@ -998,25 +1030,26 @@ track_lines = {}   # Dictionary to store the polyline objects for ship tracks
 
 # Split map frame into two parts: map and control panel
 map_container = ttk.Frame(map_frame)
-map_container.grid(row=0, column=0, sticky=(tk.N, tk.W, tk.E, tk.S))
+map_container.grid(row=1, column=0, sticky=(tk.N, tk.W, tk.E, tk.S))  # <-- row=1 so search bar is above
 
 map_control_panel = ttk.LabelFrame(map_frame, text="Map Controls", padding=10)
-map_control_panel.grid(row=0, column=1, sticky=(tk.N, tk.W, tk.S), padx=5)
+map_control_panel.grid(row=1, column=1, sticky=(tk.N, tk.W, tk.S), padx=5)
 
 # Make the map expand with window resizing
 map_frame.columnconfigure(0, weight=1)
-map_frame.rowconfigure(0, weight=1)
+map_frame.rowconfigure(1, weight=1)  # <-- row=1 for map
 map_container.columnconfigure(0, weight=1)
 map_container.rowconfigure(0, weight=1)
 
 if MAP_VIEW_AVAILABLE:
-    # Create the map widget
+    # Create the map widget (ONLY ONCE)
     map_widget = tkintermapview.TkinterMapView(map_container, width=600, height=400, corner_radius=0)
     map_widget.grid(row=0, column=0, sticky=(tk.N, tk.W, tk.E, tk.S))
     
-    # Set default position (New York Harbor)
-    map_widget.set_position(40.7128, -74.0060)  # NY Harbor area
-    map_widget.set_zoom(12)
+    # Set default position (Portugal)
+    map_widget.set_tile_server("https://a.tile.openstreetmap.org/{z}/{x}/{y}.png")    
+    map_widget.set_position(39.5, -9.25)  # Portugal area
+    map_widget.set_zoom(8)
 else:
     # Fallback if map widget is not available
     map_fallback_frame = ttk.LabelFrame(map_container, text="Map Not Available", padding=20)
@@ -1666,10 +1699,10 @@ def add_new_ship():
         waypoint_map = tkintermapview.TkinterMapView(waypoint_map_frame, width=400, height=250, corner_radius=0)
         waypoint_map.pack(fill=tk.BOTH, expand=True)
         try:
-            lat0 = float(waypoint_lat_var.get()) if waypoint_lat_var.get() else 40.7128
-            lon0 = float(waypoint_lon_var.get()) if waypoint_lon_var.get() else -74.0060
+            lat0 = float(waypoint_lat_var.get()) if waypoint_lat_var.get() else 39.5
+            lon0 = float(waypoint_lon_var.get()) if waypoint_lon_var.get() else -9.25
         except Exception:
-            lat0, lon0 = 40.7128, -74.0060
+            lat0, lon0 = 39.5, -9.25
         waypoint_map.set_position(lat0, lon0)
         waypoint_map.set_zoom(10)
         waypoint_marker = [None]
@@ -1690,6 +1723,10 @@ def add_new_ship():
             except Exception:
                 pass
         ttk.Button(waypoints_action_frame, text="Center Map", command=center_waypoint_map).pack(side=tk.LEFT, padx=5)
+        # Draw existing waypoints as markers
+        for i, wp in enumerate(waypoints):
+            marker = waypoint_map.set_marker(wp[0], wp[1], text=f"WP {i+1}")
+            waypoint_markers.append(marker)
     else:
         ttk.Label(waypoints_frame, text="Map not available. Install tkintermapview for map picking.").pack(pady=10)
 
@@ -1744,16 +1781,20 @@ def add_new_ship():
                 waypoint_markers.clear()
 
     # --- Ship Type Reference Panel for Dialog ---
-    ship_type_frame = ttk.LabelFrame(basic_frame, text="Ship Type Codes Reference", padding=10)
-    ship_type_frame.grid(row=99, column=0, sticky=(tk.W, tk.E), padx=10, pady=10)
 
-    ttk.Label(ship_type_frame, text="Common AIS Ship Types:").pack(anchor=tk.W, pady=5)
+    reference_frame = ttk.Frame(basic_frame)
+    reference_frame.grid(row=len(fields)+1, column=0, columnspan=4, sticky=tk.W, padx=0, pady=(10, 0))
+
+    ship_type_frame = ttk.LabelFrame(reference_frame, text="Ship Type Codes Reference", padding=10)
+    ship_type_frame.pack(side=tk.LEFT, padx=(0, 10), pady=0, anchor="n")
+
+    ttk.Label(ship_type_frame, text="Common AIS Ship Types:", font=("Segoe UI", 11, "bold")).pack(anchor=tk.W, pady=5)
 
     ship_type_scroll = tk.Scrollbar(ship_type_frame)
     ship_type_scroll.pack(side=tk.RIGHT, fill=tk.Y)
     ship_type_text = tk.Text(
         ship_type_frame, wrap=tk.WORD, yscrollcommand=ship_type_scroll.set,
-        height=12, width=18, font=("Segoe UI", 10)
+        height=12, width=18, font=("Segoe UI", 11), relief=tk.FLAT, borderwidth=0,
     )
     ship_type_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=False)
     ship_type_scroll.config(command=ship_type_text.yview)
@@ -1786,15 +1827,15 @@ def add_new_ship():
     ship_type_text.config(state=tk.DISABLED)
 
     # --- Navigation Status Codes Reference (Improved UI) ---
-    nav_status_frame = ttk.LabelFrame(basic_frame, text="Navigation Status Codes Reference", padding=(12, 8))
-    nav_status_frame.grid(row=99, column=1, sticky=(tk.W, tk.E), padx=10, pady=10)
+    nav_status_frame = ttk.LabelFrame(reference_frame, text="Navigation Status Codes Reference", padding=(12, 8))
+    nav_status_frame.pack(side=tk.LEFT, padx=(0, 0), pady=0, anchor="n")
 
     ttk.Label(nav_status_frame, text="Common AIS Navigation Status Codes:", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(0, 6))
 
     nav_status_scroll = tk.Scrollbar(nav_status_frame)
     nav_status_text = tk.Text(
-        nav_status_frame, width=18, height=12, wrap=tk.WORD,
-        font=("Segoe UI", 10), relief=tk.FLAT, borderwidth=0,
+        nav_status_frame, width=25, height=12, wrap=tk.WORD,
+        font=("Segoe UI", 11), relief=tk.FLAT, borderwidth=0,
         yscrollcommand=nav_status_scroll.set
     )
     nav_status_scroll.config(command=nav_status_text.yview)
@@ -2010,8 +2051,8 @@ def edit_selected_ship():
         waypoint_map = tkintermapview.TkinterMapView(waypoint_map_frame, width=400, height=250, corner_radius=0)
         waypoint_map.pack(fill=tk.BOTH, expand=True)
         try:
-            lat0 = float(waypoint_lat_var.get()) if waypoint_lat_var.get() else 40.7128
-            lon0 = float(waypoint_lon_var.get()) if waypoint_lon_var.get() else -74.0060
+            lat0 = float(waypoint_lat_var.get()) if waypoint_lat_var.get() else 39.5
+            lon0 = float(waypoint_lon_var.get()) if waypoint_lon_var.get() else -9.25
         except Exception:
             lat0, lon0 = 40.7128, -74.0060
         waypoint_map.set_position(lat0, lon0)
@@ -2092,16 +2133,19 @@ def edit_selected_ship():
                 waypoint_markers.clear()
 
     # --- Ship Type Reference Panel for Dialog ---
-    ship_type_frame = ttk.LabelFrame(basic_frame, text="Ship Type Codes Reference", padding=10)
-    ship_type_frame.grid(row=99, column=0, sticky=(tk.W, tk.E), padx=10, pady=10)
+    reference_frame = ttk.Frame(basic_frame)
+    reference_frame.grid(row=len(fields)+1, column=0, columnspan=4, sticky=tk.W, padx=0, pady=(10, 0))
 
-    ttk.Label(ship_type_frame, text="Common AIS Ship Types:").pack(anchor=tk.W, pady=5)
+    ship_type_frame = ttk.LabelFrame(reference_frame, text="Ship Type Codes Reference", padding=10)
+    ship_type_frame.pack(side=tk.LEFT, padx=(0, 10), pady=0, anchor="n")
+
+    ttk.Label(ship_type_frame, text="Common AIS Ship Types:", font=("Segoe UI", 11, "bold")).pack(anchor=tk.W, pady=5)
 
     ship_type_scroll = tk.Scrollbar(ship_type_frame)
     ship_type_scroll.pack(side=tk.RIGHT, fill=tk.Y)
     ship_type_text = tk.Text(
         ship_type_frame, wrap=tk.WORD, yscrollcommand=ship_type_scroll.set,
-        height=12, width=18, font=("Segoe UI", 10)
+        height=12, width=18, font=("Segoe UI", 11), relief=tk.FLAT, borderwidth=0
     )
     ship_type_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=False)
     ship_type_scroll.config(command=ship_type_text.yview)
@@ -2134,15 +2178,15 @@ def edit_selected_ship():
     ship_type_text.config(state=tk.DISABLED)
 
     # --- Navigation Status Codes Reference (Improved UI) ---
-    nav_status_frame = ttk.LabelFrame(basic_frame, text="Navigation Status Codes Reference", padding=(12, 8))
-    nav_status_frame.grid(row=99, column=1, sticky=(tk.W, tk.E), padx=10, pady=10)
+    nav_status_frame = ttk.LabelFrame(reference_frame, text="Navigation Status Codes Reference", padding=(12, 8))
+    nav_status_frame.pack(side=tk.LEFT, padx=(0, 0), pady=0, anchor="n")
 
     ttk.Label(nav_status_frame, text="Common AIS Navigation Status Codes:", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(0, 6))
 
     nav_status_scroll = tk.Scrollbar(nav_status_frame)
     nav_status_text = tk.Text(
-        nav_status_frame, width=18, height=12, wrap=tk.WORD,
-        font=("Segoe UI", 10), relief=tk.FLAT, borderwidth=0,
+        nav_status_frame, width=25, height=12, wrap=tk.WORD,
+        font=("Segoe UI", 11), relief=tk.FLAT, borderwidth=0,
         yscrollcommand=nav_status_scroll.set
     )
     nav_status_scroll.config(command=nav_status_text.yview)
