@@ -1613,7 +1613,7 @@ def add_new_ship():
     """Add a new ship to the simulation"""
     ship_dialog = tk.Toplevel(root)
     ship_dialog.title("Add New Ship")
-    ship_dialog.geometry("600x650")
+    ship_dialog.attributes("-fullscreen", True)
     
     main_frame = ttk.Frame(ship_dialog, padding=10)
     main_frame.pack(fill=tk.BOTH, expand=True)
@@ -1962,7 +1962,7 @@ def edit_selected_ship():
     # Create dialog
     ship_dialog = tk.Toplevel(root)
     ship_dialog.title(f"Edit: {ship.name}")
-    ship_dialog.geometry("600x650")
+    ship_dialog.attributes("-fullscreen", True)
     
     main_frame = ttk.Frame(ship_dialog, padding=10)
     main_frame.pack(fill=tk.BOTH, expand=True)
