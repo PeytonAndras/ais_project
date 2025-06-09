@@ -815,6 +815,48 @@ tx_btn.grid(column=0, row=8, sticky=(tk.W, tk.E), pady=10)
 if not SDR_AVAILABLE:
     tx_btn.config(state="disabled")
 
+# --- AIS Message Type Reference Panel ---
+ais_type_frame = ttk.LabelFrame(ais_frame, text="AIS Message Types Reference", padding=10)
+ais_type_frame.grid(row=0, column=2, sticky=(tk.N, tk.W, tk.E, tk.S), padx=10, pady=5)
+
+ais_type_text = tk.Text(ais_type_frame, width=38, height=22, wrap=tk.WORD)
+ais_type_text.pack(fill=tk.BOTH, expand=True)
+
+ais_type_text.insert(tk.END, """\
+AIS Message Types (for 'Message Type' input):
+
+1 - Position Report Class A
+2 - Position Report Class A (Assigned schedule)
+3 - Position Report Class A (Response to interrogation)
+4 - Base Station Report
+5 - Static and Voyage Related Data
+6 - Binary Addressed Message
+7 - Binary Acknowledge
+8 - Binary Broadcast Message
+9 - Standard SAR Aircraft Position Report
+10 - UTC/Date Inquiry
+11 - UTC/Date Response
+12 - Addressed Safety Related Message
+13 - Safety Related Acknowledge
+14 - Safety Related Broadcast Message
+15 - Interrogation
+16 - Assignment Mode Command
+17 - GNSS Broadcast Binary Message
+18 - Standard Class B CS Position Report
+19 - Extended Class B Equipment Position Report
+20 - Data Link Management
+21 - Aid-to-Navigation Report
+22 - Channel Management
+23 - Group Assignment Command
+24 - Static Data Report (Class B)
+25 - Single Slot Binary Message
+26 - Multiple Slot Binary Message
+27 - Long Range AIS Broadcast Message
+
+For most ship position reports, use type 1, 2, 3, 18, or 19.
+""")
+ais_type_text.config(state=tk.DISABLED)
+
 # ----- Tab 2: Transmission Log -----
 log_frame = ttk.Frame(notebook, padding=10)
 notebook.add(log_frame, text="Transmission Log")
@@ -1653,6 +1695,85 @@ def add_new_ship():
                     waypoint_map.delete(m)
                 waypoint_markers.clear()
 
+    # --- Ship Type Reference Panel for Dialog ---
+    ship_type_frame = ttk.LabelFrame(basic_frame, text="Ship Type Codes Reference", padding=10)
+    ship_type_frame.grid(row=99, column=0, sticky=(tk.W, tk.E), padx=10, pady=10)
+
+    ttk.Label(ship_type_frame, text="Common AIS Ship Types:").pack(anchor=tk.W, pady=5)
+
+    ship_type_scroll = tk.Scrollbar(ship_type_frame)
+    ship_type_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+    ship_type_text = tk.Text(
+        ship_type_frame, wrap=tk.WORD, yscrollcommand=ship_type_scroll.set,
+        height=12, width=18, font=("Segoe UI", 10)
+    )
+    ship_type_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=False)
+    ship_type_scroll.config(command=ship_type_text.yview)
+    ship_type_text.config(state=tk.NORMAL)
+    ship_type_text.delete(1.0, tk.END)
+    ship_type_text.insert(tk.END, """\
+20 - Wing in ground (WIG)
+30 - Fishing
+31 - Towing
+32 - Towing (long)
+33 - Dredging or underwater ops
+34 - Diving ops
+35 - Military ops
+36 - Sailing
+37 - Pleasure craft
+40 - High speed craft (HSC)
+50 - Pilot vessel
+51 - Search and rescue vessel
+52 - Tug
+53 - Port tender
+54 - Anti-pollution
+55 - Law enforcement
+60 - Passenger
+70 - Cargo
+80 - Tanker
+90 - Other type
+
+(0 = Not available, 99 = Other)
+""")
+    ship_type_text.config(state=tk.DISABLED)
+
+    # --- Navigation Status Codes Reference (Improved UI) ---
+    nav_status_frame = ttk.LabelFrame(basic_frame, text="Navigation Status Codes Reference", padding=(12, 8))
+    nav_status_frame.grid(row=99, column=1, sticky=(tk.W, tk.E), padx=10, pady=10)
+
+    ttk.Label(nav_status_frame, text="Common AIS Navigation Status Codes:", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(0, 6))
+
+    nav_status_scroll = tk.Scrollbar(nav_status_frame)
+    nav_status_text = tk.Text(
+        nav_status_frame, width=18, height=12, wrap=tk.WORD,
+        font=("Segoe UI", 10), relief=tk.FLAT, borderwidth=0,
+        yscrollcommand=nav_status_scroll.set
+    )
+    nav_status_scroll.config(command=nav_status_text.yview)
+    nav_status_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=False)
+    nav_status_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+    nav_status_text.insert(tk.END, """\
+0 - Under way using engine
+1 - At anchor
+2 - Not under command
+3 - Restricted manoeuverability
+4 - Constrained by her draught
+5 - Moored
+6 - Aground
+7 - Engaged in fishing
+8 - Under way sailing
+9 - Reserved for HSC
+10 - Reserved for WIG
+11 - Reserved
+12 - Reserved
+13 - Reserved
+14 - AIS-SART/MOB-AIS/EPIRB-AIS
+15 - Not defined (default)
+""")
+    nav_status_text.config(state=tk.DISABLED)
+
+
     ttk.Button(waypoints_action_frame, text="Add", command=add_waypoint).pack(side=tk.LEFT, padx=5)
     ttk.Button(waypoints_action_frame, text="Remove", command=remove_waypoint).pack(side=tk.LEFT, padx=5)
     ttk.Button(waypoints_action_frame, text="Clear All", command=clear_waypoints).pack(side=tk.LEFT, padx=5)
@@ -1879,6 +2000,7 @@ def edit_selected_ship():
                 waypoint_markers.append(marker)
         except ValueError as e:
             messagebox.showerror("Invalid Input", str(e))
+
     def remove_waypoint():
         selected = waypoints_list.selection()
         if not selected:
@@ -1910,6 +2032,86 @@ def edit_selected_ship():
                 for m in waypoint_markers:
                     waypoint_map.delete(m)
                 waypoint_markers.clear()
+
+    # --- Ship Type Reference Panel for Dialog ---
+    ship_type_frame = ttk.LabelFrame(basic_frame, text="Ship Type Codes Reference", padding=10)
+    ship_type_frame.grid(row=99, column=0, sticky=(tk.W, tk.E), padx=10, pady=10)
+
+    ttk.Label(ship_type_frame, text="Common AIS Ship Types:").pack(anchor=tk.W, pady=5)
+
+    ship_type_scroll = tk.Scrollbar(ship_type_frame)
+    ship_type_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+    ship_type_text = tk.Text(
+        ship_type_frame, wrap=tk.WORD, yscrollcommand=ship_type_scroll.set,
+        height=12, width=18, font=("Segoe UI", 10)
+    )
+    ship_type_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=False)
+    ship_type_scroll.config(command=ship_type_text.yview)
+    ship_type_text.config(state=tk.NORMAL)
+    ship_type_text.delete(1.0, tk.END)
+    ship_type_text.insert(tk.END, """\
+20 - Wing in ground (WIG)
+30 - Fishing
+31 - Towing
+32 - Towing (long)
+33 - Dredging or underwater ops
+34 - Diving ops
+35 - Military ops
+36 - Sailing
+37 - Pleasure craft
+40 - High speed craft (HSC)
+50 - Pilot vessel
+51 - Search and rescue vessel
+52 - Tug
+53 - Port tender
+54 - Anti-pollution
+55 - Law enforcement
+60 - Passenger
+70 - Cargo
+80 - Tanker
+90 - Other type
+
+(0 = Not available, 99 = Other)
+""")
+    ship_type_text.config(state=tk.DISABLED)
+
+    # --- Navigation Status Codes Reference (Improved UI) ---
+    nav_status_frame = ttk.LabelFrame(basic_frame, text="Navigation Status Codes Reference", padding=(12, 8))
+    nav_status_frame.grid(row=99, column=1, sticky=(tk.W, tk.E), padx=10, pady=10)
+
+    ttk.Label(nav_status_frame, text="Common AIS Navigation Status Codes:", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(0, 6))
+
+    nav_status_scroll = tk.Scrollbar(nav_status_frame)
+    nav_status_text = tk.Text(
+        nav_status_frame, width=18, height=12, wrap=tk.WORD,
+        font=("Segoe UI", 10), relief=tk.FLAT, borderwidth=0,
+        yscrollcommand=nav_status_scroll.set
+    )
+    nav_status_scroll.config(command=nav_status_text.yview)
+    nav_status_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=False)
+    nav_status_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+    nav_status_text.insert(tk.END, """\
+0 - Under way using engine
+1 - At anchor
+2 - Not under command
+3 - Restricted manoeuverability
+4 - Constrained by her draught
+5 - Moored
+6 - Aground
+7 - Engaged in fishing
+8 - Under way sailing
+9 - Reserved for HSC
+10 - Reserved for WIG
+11 - Reserved
+12 - Reserved
+13 - Reserved
+14 - AIS-SART/MOB-AIS/EPIRB-AIS
+15 - Not defined (default)
+""")
+    nav_status_text.config(state=tk.DISABLED)
+
+
     ttk.Button(waypoints_action_frame, text="Add", command=add_waypoint).pack(side=tk.LEFT, padx=5)
     ttk.Button(waypoints_action_frame, text="Remove", command=remove_waypoint).pack(side=tk.LEFT, padx=5)
     ttk.Button(waypoints_action_frame, text="Clear All", command=clear_waypoints).pack(side=tk.LEFT, padx=5)
@@ -1987,8 +2189,8 @@ update_ship_listbox()
 notebook.select(2)  # Index 2 corresponds to the Ship Simulation tab
 
 # Center the window on screen
-window_width = 800
-window_height = 600
+window_width = 1000
+window_height = 750
 screen_width = root.winfo_screenwidth()
 screen_height = root.winfo_screenheight()
 center_x = int((screen_width - window_width) / 2)
