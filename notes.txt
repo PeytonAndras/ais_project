@@ -1,0 +1,4 @@
+working in maritime files... transmission seems to be correct... 
+try to implemenet pyais as much as possible and transmit using the encoding from the library
+working on debugging decoder but probably irrelevent because it needs to be decoded by rtl_ais
+use pyais in maritime transmitter to allow simpple message to be decoded by rtl_ais or another pyais decoder file
