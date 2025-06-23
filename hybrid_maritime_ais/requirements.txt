@@ -1,0 +1,32 @@
+# Hybrid Maritime AIS Transmitter Requirements
+
+# Core dependencies
+numpy>=1.21.0
+SoapySDR>=0.8.0
+
+# AIS protocol support
+pyais>=2.0.0
+bitarray>=2.6.0
+
+# Optional CRC support
+crcmod>=1.7
+
+# Configuration and utilities
+dataclasses>=0.6  # Python 3.7+
+typing-extensions>=4.0.0
+
+# Development and testing
+pytest>=6.0.0
+pytest-cov>=2.0.0
+
+# Documentation
+sphinx>=4.0.0
+sphinx-rtd-theme>=1.0.0
+
+# Signal processing (optional)
+scipy>=1.7.0
+matplotlib>=3.5.0  # For signal analysis
+
+# GPS integration (optional)
+gpsd-py3>=0.3.0
+pyserial>=3.5

@@ -1,0 +1,8 @@
+numpy>=1.21.0
+scipy>=1.7.0
+pyais>=2.6.0
+SoapySDR>=0.8.0
+limesuite>=20.10.0
+matplotlib>=3.5.0
+bitarray>=2.3.0
+crcmod>=1.7
