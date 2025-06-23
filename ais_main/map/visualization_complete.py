@@ -50,7 +50,6 @@ class MapVisualization:
             search_frame = ttk.Frame(self.parent_frame)
             search_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 5))
             self.search_var = tk.StringVar()
-            ttk.Label(search_frame, text="Search Location:").pack(side=tk.LEFT, padx=5)
             search_entry = ttk.Entry(search_frame, textvariable=self.search_var, width=30)
             search_entry.pack(side=tk.LEFT, padx=5)
             ttk.Button(search_frame, text="Go", command=self.do_search).pack(side=tk.LEFT, padx=5)
@@ -175,33 +174,6 @@ class MapVisualization:
             print(f"Error creating ship icons: {e}")
             self.ship_icon = None
             self.ship_icon_selected = None
-
-    def do_search(self):
-        """Handle map search functionality"""
-        if not self.map_available or not self.map_widget:
-            return
-            
-        query = self.search_var.get().strip()
-        if not query:
-            return
-            
-        # Try to parse as lat,lon first
-        try:
-            if ',' in query:
-                lat, lon = map(float, query.split(','))
-                self.map_widget.set_position(lat, lon)
-                self.map_widget.set_zoom(12)
-                return
-        except Exception:
-            pass
-            
-        # Otherwise, use geocoding
-        try:
-            result = self.map_widget.set_address(query)
-            if result:
-                self.map_widget.set_zoom(12)
-        except Exception as e:
-            messagebox.showerror("Search Error", f"Could not find location: {e}")
 
     def change_map_type(self, event=None):
         """Change the map tile server type"""

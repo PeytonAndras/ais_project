@@ -279,10 +279,10 @@ class ShipDialog:
         
         # Set initial position
         try:
-            lat0 = float(self.waypoint_lat_var.get()) if self.waypoint_lat_var.get() else 40.7128
-            lon0 = float(self.waypoint_lon_var.get()) if self.waypoint_lon_var.get() else -74.0060
+            lat0 = float(self.waypoint_lat_var.get()) if self.waypoint_lat_var.get() else 39.5,
+            lon0 = float(self.waypoint_lon_var.get()) if self.waypoint_lon_var.get() else -9.25
         except Exception:
-            lat0, lon0 = 40.7128, -74.0060
+            lat0, lon0 = 39.5, -9.25 # default to portugal center
         
         self.waypoint_map.set_position(lat0, lon0)
         self.waypoint_map.set_zoom(10)
