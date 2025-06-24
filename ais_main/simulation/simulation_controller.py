@@ -51,12 +51,16 @@ class SimulationController:
         """Check if simulation is running"""
         return self.simulation_active
     
-    def _trigger_map_update(self):
-        """Trigger a map update in a thread-safe manner"""
+    def _trigger_map_update(self, selected_ship_indices=None):
+        """Trigger a map update in a thread-safe manner
+        
+        Args:
+            selected_ship_indices: List of ship indices to display on map
+        """
         try:
             # Import here to avoid circular imports
             from ..map.visualization import update_ships_on_map
-            update_ships_on_map()
+            update_ships_on_map(selected_ship_indices)
         except Exception as e:
             print(f"Error updating map: {e}")
     
@@ -89,8 +93,8 @@ class SimulationController:
                 # Move only selected ships
                 self.ship_manager.move_all_ships(elapsed, selected_ship_indices)
                 
-                # Update map after moving ships
-                self._trigger_map_update()
+                # Update map after moving ships - show only selected ships
+                self._trigger_map_update(selected_ship_indices)
                 
                 # Transmit AIS message for each selected ship
                 for i, ship in enumerate(ships):

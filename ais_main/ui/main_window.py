@@ -579,8 +579,9 @@ For most ship position reports, use type 1, 2, 3, 18, or 19.
         
         if start_simulation(signal_preset, interval, update_sim_log, selected_indices):
             update_sim_log("Simulation started successfully")
-            # Start map updates if map is available
+            # Start map updates if map is available and set selected ships
             if hasattr(self, 'map_visualization') and self.map_visualization:
+                self.map_visualization.set_selected_ships(selected_indices)
                 self.map_visualization.start_real_time_updates()
         else:
             messagebox.showerror("Error", "Failed to start simulation")
@@ -591,9 +592,10 @@ For most ship position reports, use type 1, 2, 3, 18, or 19.
         from ..simulation.simulation_controller import stop_simulation
         stop_simulation()
         
-        # Stop map updates if map is available
+        # Stop map updates and reset to show all ships
         if hasattr(self, 'map_visualization') and self.map_visualization:
             self.map_visualization.stop_real_time_updates()
+            self.map_visualization.set_selected_ships(None)  # Show all ships
         
         self.sim_status_var.set("Simulation Stopped")
         self.start_sim_btn.config(state=tk.NORMAL)

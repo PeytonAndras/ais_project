@@ -40,6 +40,9 @@ class MapVisualization:
         self.ship_icon = None
         self.ship_icon_selected = None
         
+        # Selected ships for display
+        self.selected_ship_indices = None  # None means show all ships
+        
         # Initialize map components
         self.setup_map_ui()
         
@@ -289,8 +292,13 @@ class MapVisualization:
                 )
                 self.track_lines[mmsi] = track_line
 
-    def update_map(self, force=False):
-        """Update the map with current ship positions"""
+    def update_map(self, force=False, selected_ship_indices=None):
+        """Update the map with current ship positions
+        
+        Args:
+            force: Force update even if positions haven't changed
+            selected_ship_indices: List of ship indices to display. If None, shows all ships.
+        """
         if not self.map_available or not self.map_widget:
             return
             
@@ -302,11 +310,21 @@ class MapVisualization:
         
         from ..ships.ship_manager import get_ship_manager
         ship_manager = get_ship_manager()
-        ships = ship_manager.get_ships()
         
-        # Update each ship's position on the map
+        # Get ships to display based on selection
+        if selected_ship_indices is not None:
+            ships = ship_manager.get_selected_ships(selected_ship_indices)
+        else:
+            ships = ship_manager.get_ships()
+        
+        # Hide all existing markers first
+        all_mmsis = set(self.ship_markers.keys())
+        
+        # Update each selected ship's position on the map
+        displayed_mmsis = set()
         for ship in ships:
             mmsi = ship.mmsi
+            displayed_mmsis.add(mmsi)
             
             # Add current position to track history
             if mmsi not in self.ship_tracks:
@@ -372,6 +390,35 @@ class MapVisualization:
                     # Hide track if track display is disabled
                     self.map_widget.delete(self.track_lines[mmsi])
                     self.track_lines[mmsi] = None
+        
+        # Hide markers for ships that are not selected (if we have a selection)
+        if selected_ship_indices is not None:
+            for mmsi in all_mmsis - displayed_mmsis:
+                if mmsi in self.ship_markers:
+                    try:
+                        self.map_widget.delete(self.ship_markers[mmsi])
+                        del self.ship_markers[mmsi]
+                    except Exception as e:
+                        print(f"Error hiding marker for MMSI {mmsi}: {e}")
+                
+                # Also hide tracks for non-selected ships
+                if mmsi in self.track_lines and self.track_lines[mmsi]:
+                    try:
+                        self.map_widget.delete(self.track_lines[mmsi])
+                        self.track_lines[mmsi] = None
+                    except Exception as e:
+                        print(f"Error hiding track for MMSI {mmsi}: {e}")
+
+    def set_selected_ships(self, selected_ship_indices):
+        """Set which ships should be displayed on the map
+        
+        Args:
+            selected_ship_indices: List of ship indices to display. None means show all ships.
+        """
+        self.selected_ship_indices = selected_ship_indices
+        # Update the map immediately to reflect the selection
+        if self.map_available:
+            self.update_map(force=True, selected_ship_indices=selected_ship_indices)
 
     def _make_click_handler(self, ship_obj, marker_obj):
         """Create a click handler for ship markers"""
@@ -438,7 +485,7 @@ class MapVisualization:
         """Schedule the next map update using Tkinter's after method"""
         if self._updating and self.map_available:
             try:
-                self.update_map()
+                self.update_map(selected_ship_indices=self.selected_ship_indices)
                 # Schedule the next update in 1 second (1000 ms)
                 self.parent_frame.after(1000, self._schedule_update)
             except Exception as e:
@@ -469,12 +516,16 @@ def get_map_visualization(parent_frame=None, map_available=False, pil_available=
         _map_visualization = MapVisualization(parent_frame, map_available, pil_available)
     return _map_visualization
 
-def update_ships_on_map():
-    """Global function to update ships on map - thread-safe"""
+def update_ships_on_map(selected_ship_indices=None):
+    """Global function to update ships on map - thread-safe
+    
+    Args:
+        selected_ship_indices: List of ship indices to display. If None, shows all ships.
+    """
     if _map_visualization and _map_visualization.map_available:
         try:
             # Schedule the update on the main thread
-            _map_visualization.parent_frame.after(0, _map_visualization.update_map)
+            _map_visualization.parent_frame.after(0, lambda: _map_visualization.update_map(selected_ship_indices=selected_ship_indices))
         except Exception as e:
             print(f"Error scheduling map update: {e}")
 
@@ -492,3 +543,8 @@ def stop_map_updates():
     """Global function to stop real-time map updates"""
     if _map_visualization:
         _map_visualization.stop_real_time_updates()
+
+def set_selected_ships_on_map(selected_ship_indices):
+    """Global function to set which ships should be displayed on map"""
+    if _map_visualization:
+        _map_visualization.set_selected_ships(selected_ship_indices)
