@@ -14,6 +14,9 @@ import math
 import webbrowser
 import threading
 import time
+import urllib.request
+import urllib.parse
+import json
 
 class MapVisualization:
     """Handles complete map visualization and ship tracking"""
@@ -269,13 +272,55 @@ class MapVisualization:
         except Exception:
             pass
             
-        # Otherwise, use geocoding
+        # Otherwise, use custom geocoding with proper headers
+        def geocode_async():
+            try:
+                lat, lon = self._geocode_location(query)
+                if lat is not None and lon is not None:
+                    # Update UI in main thread
+                    self.parent_frame.after(0, lambda: self._update_map_position(lat, lon))
+                else:
+                    self.parent_frame.after(0, lambda: messagebox.showerror("Search Error", "Location not found"))
+            except Exception as e:
+                self.parent_frame.after(0, lambda: messagebox.showerror("Search Error", f"Search failed: {e}"))
+        
+        # Run geocoding in background thread to avoid blocking UI
+        threading.Thread(target=geocode_async, daemon=True).start()
+    
+    def _geocode_location(self, query):
+        """
+        Geocode a location using OpenStreetMap Nominatim API with proper headers
+        Returns (lat, lon) or (None, None) if not found
+        """
         try:
-            result = self.map_widget.set_address(query)
-            if result:
-                self.map_widget.set_zoom(12)
+            # Encode query for URL
+            encoded_query = urllib.parse.quote(query)
+            url = f"https://nominatim.openstreetmap.org/search?format=json&q={encoded_query}&limit=1"
+            
+            # Create request with proper User-Agent header (required by Nominatim policy)
+            req = urllib.request.Request(url)
+            req.add_header('User-Agent', 'SIREN-AIS-System/1.0 (Maritime Research Tool)')
+            
+            # Make request with timeout
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                
+                if data and len(data) > 0:
+                    result = data[0]
+                    lat = float(result['lat'])
+                    lon = float(result['lon'])
+                    return lat, lon
+                    
         except Exception as e:
-            messagebox.showerror("Search Error", f"Could not find location: {e}")
+            print(f"Geocoding error: {e}")
+            
+        return None, None
+    
+    def _update_map_position(self, lat, lon):
+        """Update map position in main thread"""
+        if self.map_widget:
+            self.map_widget.set_position(lat, lon)
+            self.map_widget.set_zoom(12)
 
     def change_map_type(self, event=None):
         """Change the map tile server type"""

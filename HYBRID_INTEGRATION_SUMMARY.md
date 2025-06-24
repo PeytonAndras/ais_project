@@ -131,10 +131,26 @@ python hybrid_demo.py
 - **dataclasses**: Configuration management
 
 ### Performance Characteristics
-- **Message Types**: Type 1/2/3 position reports
+- **Message Types**: Type 1/2/3 position reports (**LIMITED - Not fully ITU-R compliant**)
 - **Update Rates**: Configurable (1-3600 seconds)
 - **Transmission Success**: Hardware-dependent
-- **Protocol Compliance**: Full ITU-R M.1371-5 implementation
+- **Protocol Compliance**: **Partial ITU-R M.1371-5 implementation (Position reports only)**
+
+### **⚠️ Standards Compliance Limitation**
+
+**Current AIS message support is LIMITED to position reports (Types 1-3 only)**.
+
+The ITU-R M.1371-5 standard defines 27 message types (0-27), but current implementation only supports:
+- ✅ Type 1: Position Report Class A (Dynamic)
+- ✅ Type 2: Position Report Class A (Assigned)  
+- ✅ Type 3: Position Report Class A (Response)
+
+**Missing critical message types:**
+- ❌ Type 5: Static and Voyage Related Data (vessel name, dimensions)
+- ❌ Type 4: Base Station Report
+- ❌ Types 6-27: Various operational and safety messages
+
+For **full ITU-R M.1371-5 compliance**, additional message types need implementation.
 
 ## Conclusion
 
