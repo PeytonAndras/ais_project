@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-AIS Main Application - Modular Entry Point
+SIREN Main Application - Modular Entry Point
 ==========================================
 
-This is the main entry point for the modular AIS NMEA Generator & Transmitter application.
+This is the main entry point for the modular SIREN Generator & Transmitter application.
 It replaces the monolithic ais_main.py file with a clean, modular architecture.
 
 @ author: Peyton Andras @ Louisiana State University 2025
 
-AIS NMEA Generator & Transmitter
+SIREN Generator & Transmitter
 - Generate AIS messages with proper encoding
 - Transmit using HackRF or other SoapySDR devices
 - Simulate vessel movements with AIS position reporting
@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'ais_main'))
 def main():
     """Main entry point for the application"""
     print("=" * 60)
-    print("AIS NMEA Generator & Transmitter - Modular Version")
+    print("SIREN Generator & Transmitter - Modular Version")
     print("@ Peyton Andras @ Louisiana State University 2025")
     print("=" * 60)
     
@@ -51,7 +51,7 @@ def main():
         
         # Create and run the main application
         app = AISMainWindow()
-        print("Starting AIS application...")
+        print("Starting SIREN application...")
         app.run()
         
     except ImportError as e:

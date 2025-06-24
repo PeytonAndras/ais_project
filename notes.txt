@@ -1,4 +1,18 @@
 working in maritime files... transmission seems to be correct... 
 try to implemenet pyais as much as possible and transmit using the encoding from the library
 working on debugging decoder but probably irrelevent because it needs to be decoded by rtl_ais
-use pyais in maritime transmitter to allow simpple message to be decoded by rtl_ais or another pyais decoder file
+use pyais in maritime transmitter to allow simple message to be decoded by rtl_ais or another pyais decoder file
+
+
+- used pyais to encode / decode sentences successfully
+- built custom transmitter and generate .iq and spectrum to analyze and confirm that transmission is happening
+- confirmed that GMSK modulation is being used according to the AIS Standards
+
+- used rtl_ais open source tool as a benchmark test for an AIS decoder/receiver, attempted to reverse engineer
+this file in order to build to meet it's requirements. no success in accomplishing decodings this way.
+believe that it needs to be testing on real martime / AIS receiver to benchmark. 
+
+- built to meet - **ITU-R M.1371-5 Compliance**: Full maritime standards compliance
+- tested using transmitter code on one SDR and testing receiving from this with a seperate SDR on the same laptop
+- frequencies and all technicalities were checked in detail in accordance to AIS specifications
+- cause of error is believed to be small technicalities in either distance of antennas, or possibly GMSK 
