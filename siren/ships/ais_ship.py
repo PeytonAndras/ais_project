@@ -105,6 +105,55 @@ class AISShip:
             'hdg': self.heading,
             'timestamp': timestamp
         }
+    
+    def get_type5_fields(self):
+        """Get fields for AIS Type 5 Static and Voyage Related Data message"""
+        return {
+            'msg_type': 5,
+            'repeat': 0,
+            'mmsi': self.mmsi,
+            'ais_version': 0,
+            'imo_number': getattr(self, 'imo_number', 0),
+            'call_sign': getattr(self, 'call_sign', ''),
+            'vessel_name': self.name,
+            'ship_type': self.ship_type,
+            'dim_to_bow': int(self.length * 0.7),  # Estimate bow distance as 70% of length
+            'dim_to_stern': int(self.length * 0.3), # Estimate stern distance as 30% of length
+            'dim_to_port': int(self.beam / 2),      # Half beam to port
+            'dim_to_starboard': int(self.beam / 2), # Half beam to starboard
+            'epfd_type': 1,  # GPS
+            'eta_month': getattr(self, 'eta_month', 0),
+            'eta_day': getattr(self, 'eta_day', 0),
+            'eta_hour': getattr(self, 'eta_hour', 24),  # 24 = not available
+            'eta_minute': getattr(self, 'eta_minute', 60), # 60 = not available
+            'max_draft': getattr(self, 'max_draft', int(self.length / 10)), # Estimate based on length
+            'destination': self.destination,
+            'dte': 1  # Data terminal equipment not available
+        }
+    
+    def get_type18_fields(self):
+        """Get fields for AIS Type 18 Class B Position Report message"""
+        timestamp = datetime.now().second % 60
+        
+        return {
+            'msg_type': 18,
+            'repeat': 0,
+            'mmsi': self.mmsi,
+            'sog': self.speed,
+            'accuracy': self.accuracy,
+            'lon': self.lon,
+            'lat': self.lat,
+            'cog': self.course,
+            'hdg': self.heading,
+            'timestamp': timestamp,
+            'cs_unit': 1,      # CS unit
+            'display': 0,      # No display available
+            'dsc': 1,          # Not equipped with DSC function
+            'band': 1,         # Capable of operating over whole marine band
+            'msg22': 0,        # No frequency management via Message 22
+            'assigned': 0,     # Autonomous mode
+            'raim': 0          # RAIM not in use
+        }
         
     def to_dict(self):
         """Convert to dictionary for serialization"""

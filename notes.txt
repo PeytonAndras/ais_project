@@ -16,3 +16,31 @@ believe that it needs to be testing on real martime / AIS receiver to benchmark.
 - tested using transmitter code on one SDR and testing receiving from this with a seperate SDR on the same laptop
 - frequencies and all technicalities were checked in detail in accordance to AIS specifications
 - cause of error is believed to be small technicalities in either distance of antennas, or possibly GMSK 
+- used spectrum analysis to capture and verify signal
+
+Testing Type 1 - Position Report (verification)
+✅ Payload: 11mg=5@01Tre>SPGBt`3Q2lt00
+✅ Fill: 5
+✅ NMEA: !AIVDM,1,1,,A,11mg=5@01Tre>SPGBt`3Q2lt00,5*47
+
+Testing Type 4 - Base Station Report
+✅ Payload: 45M:Ih1vUd<Nere>SPGBt`100000
+✅ Fill: 0
+✅ NMEA: !AIVDM,1,1,,A,45M:Ih1vUd<Nere>SPGBt`100000,0*2A
+
+Testing Type 5 - Static and Voyage Related Data
+✅ Payload: 53OdplP0Bm`M@E=C7;<5@h4q@T>1A84@E8000016?0t>>7<fNEC2DhSkP00000000000008
+✅ Fill: 2
+✅ NMEA: !AIVDM,1,1,,A,53OdplP0Bm`M@E=C7;<5@h4q@T>1A84@E8000016?0t>>7<fNEC2DhSkP00000000000008,2*28
+
+Testing Type 18 - Standard Class B Position Report
+✅ Payload: B59bT=@0;OmEHP5a;?1hQJ7UP000
+✅ Fill: 0
+✅ NMEA: !AIVDM,1,1,,A,B59bT=@0;OmEHP5a;?1hQJ7UP000,0*47
+
+Testing Type 21 - Aid-to-Navigation Report
+✅ Payload: E>j:J@2V4ST:47baRh12PQWW000Obm1@;CA40:1@``v000
+✅ Fill: 4
+✅ NMEA: !AIVDM,1,1,,A,E>j:J@2V4ST:47baRh12PQWW000Obm1@;CA40:1@``v000,4*67
+
+============================================================
