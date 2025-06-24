@@ -435,6 +435,12 @@ class ShipDialog:
                 # Reset current_waypoint if waypoints were changed
                 if self.waypoints:
                     self.ship.current_waypoint = 0
+                    # Set initial course toward first waypoint
+                    first_wp = self.waypoints[0]
+                    bearing = calculate_initial_compass_bearing((self.ship.lat, self.ship.lon), first_wp)
+                    self.ship.course = bearing
+                    self.ship.heading = round(bearing)
+                    print(f"DEBUG: Course set to first waypoint: {bearing:.1f}°")
                 else:
                     self.ship.current_waypoint = -1  # No waypoints
                 

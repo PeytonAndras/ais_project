@@ -71,7 +71,10 @@ class AISShip:
         target_wp = self.waypoints[self.current_waypoint]
         distance_to_wp = haversine(self.lat, self.lon, target_wp[0], target_wp[1])
         
-        if distance_to_wp <= self.waypoint_radius:
+        # Convert waypoint_radius from degrees to kilometers (rough approximation)
+        radius_km = self.waypoint_radius * 111.0  # 1 degree ≈ 111 km
+        
+        if distance_to_wp <= radius_km:
             # Waypoint reached
             print(f"Waypoint {self.current_waypoint+1} reached: {target_wp}")
             self.current_waypoint += 1  # Move to next waypoint
@@ -129,6 +132,13 @@ class AISShip:
         ship.waypoints = data.get('waypoints', [])
         ship.current_waypoint = data.get('current_waypoint', -1)
         ship.waypoint_radius = data.get('waypoint_radius', 0.01)
+        
+        # If ship has waypoints and current_waypoint is valid, set course to first waypoint
+        if ship.waypoints and 0 <= ship.current_waypoint < len(ship.waypoints):
+            target_wp = ship.waypoints[ship.current_waypoint]
+            ship.course = calculate_initial_compass_bearing((ship.lat, ship.lon), target_wp)
+            ship.heading = round(ship.course)
+        
         return ship
 
 def create_sample_ships():
