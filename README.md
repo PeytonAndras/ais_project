@@ -93,6 +93,51 @@ python ais_main_modular.py
 
 ---
 
+## 🔧 Hybrid Maritime AIS Integration
+
+SIREN integrates with a production-ready maritime AIS transmitter system located in the `hybrid_maritime_ais/` folder. This system provides complementary functionality for real-world maritime deployment.
+
+### Production Features
+- **ITU-R M.1371-5 Compliance**: Full standards compliance for real maritime deployment
+- **SOTDMA Protocol**: Self-Organizing Time Division Multiple Access prevents interference
+- **Multi-mode Operation**: Production (GMSK), rtl_ais testing (FSK), and compatibility modes
+- **Command-line Interface**: Direct vessel beacon transmission without GUI
+
+### Quick Usage Examples
+```bash
+# Production maritime beacon
+python hybrid_maritime_ais/hybrid_maritime_ais.py \
+    --mmsi 123456789 --lat 37.7749 --lon -122.4194 \
+    --mode production --sog 12.5 --cog 045
+
+# rtl_ais compatibility testing
+python hybrid_maritime_ais/hybrid_maritime_ais.py \
+    --mmsi 123456789 --lat 37.7749 --lon -122.4194 \
+    --mode rtl_ais_testing --once
+
+# Emergency beacon
+python hybrid_maritime_ais/hybrid_maritime_ais.py \
+    --mmsi 123456789 --lat 37.7749 --lon -122.4194 \
+    --mode emergency --nav-status 7 --rate 5
+```
+
+### Integration Benefits
+| SIREN | Hybrid Maritime AIS |
+|-------|-------------------|
+| Multi-vessel simulation | Single-vessel production deployment |
+| GUI with waypoint management | Command-line operation |
+| Development and testing focus | Standards compliance focus |
+| Visual simulation and training | Real maritime beacon transmission |
+
+### Use Cases
+- **Use SIREN** for: Multi-vessel simulation, testing, training, development
+- **Use Hybrid** for: Production vessel deployment, standards compliance, emergency beacons
+- **Combined** for: Complete development-to-deployment workflow
+
+📖 **For complete integration details, see [HYBRID_INTEGRATION_SUMMARY.md](HYBRID_INTEGRATION_SUMMARY.md)**
+
+---
+
 ## 🗺️ Map Modes
 
 ### Online Maps (Default)

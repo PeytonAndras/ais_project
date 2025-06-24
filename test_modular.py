@@ -15,25 +15,25 @@ def test_modules():
     
     try:
         print("✓ Importing config...")
-        from ais_main.config.settings import check_dependencies
+        from siren.config.settings import check_dependencies
         
         print("✓ Importing protocol...")
-        from ais_main.protocol.ais_encoding import build_ais_payload
+        from siren.protocol.ais_encoding import build_ais_payload
         
         print("✓ Importing ships...")
-        from ais_main.ships.ship_manager import get_ship_manager
+        from siren.ships.ship_manager import get_ship_manager
         
         print("✓ Importing transmission...")
-        from ais_main.transmission.sdr_controller import get_signal_presets
+        from siren.transmission.sdr_controller import get_signal_presets
         
         print("✓ Importing simulation...")
-        from ais_main.simulation.simulation_controller import get_simulation_controller
+        from siren.simulation.simulation_controller import get_simulation_controller
         
         print("✓ Importing utils...")
-        from ais_main.utils.navigation import haversine
+        from siren.utils.navigation import haversine
         
         print("✓ Importing map...")
-        from ais_main.map.visualization import MapVisualization
+        from siren.map.visualization import MapVisualization
         
         print("✓ All core modules imported successfully!")
         

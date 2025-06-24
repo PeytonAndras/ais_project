@@ -33,9 +33,9 @@ def main():
     
     try:
         # Import modules here to handle missing dependencies gracefully
-        from ais_main.config.settings import check_dependencies
-        from ais_main.ui.main_window import AISMainWindow
-        from ais_main.ships.ship_manager import get_ship_manager
+        from siren.config.settings import check_dependencies
+        from siren.ui.main_window import AISMainWindow
+        from siren.ships.ship_manager import get_ship_manager
         
         # Check dependencies and print status
         sdr_available, map_available, pil_available = check_dependencies()
