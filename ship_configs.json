@@ -108,7 +108,7 @@
     "turn": 0,
     "destination": "NEW YORK",
     "accuracy": 1,
-    "heading": 90.0,
+    "heading": 90,
     "waypoints": [],
     "current_waypoint": -1,
     "waypoint_radius": 0.01

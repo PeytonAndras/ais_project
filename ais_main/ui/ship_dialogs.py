@@ -279,7 +279,7 @@ class ShipDialog:
         
         # Set initial position
         try:
-            lat0 = float(self.waypoint_lat_var.get()) if self.waypoint_lat_var.get() else 39.5,
+            lat0 = float(self.waypoint_lat_var.get()) if self.waypoint_lat_var.get() else 39.5
             lon0 = float(self.waypoint_lon_var.get()) if self.waypoint_lon_var.get() else -9.25
         except Exception:
             lat0, lon0 = 39.5, -9.25 # default to portugal center
@@ -393,8 +393,8 @@ class ShipDialog:
         try:
             # Validate inputs
             mmsi = int(self.vars_dict["mmsi"].get())
-            if mmsi < 200000000 or mmsi > 999999999:
-                raise ValueError("MMSI must be 9 digits")
+            if len(str(mmsi)) != 9 or mmsi < 0:
+                raise ValueError("MMSI must be a 9-digit positive integer")
                 
             lat = float(self.vars_dict["lat"].get())
             if lat < -90 or lat > 90:
@@ -405,6 +405,9 @@ class ShipDialog:
                 raise ValueError("Longitude must be -180 to 180")
             
             ship_manager = get_ship_manager()
+            
+            # Debug: Print waypoints before saving
+            print(f"DEBUG: Dialog waypoints: {self.waypoints}")
             
             if self.ship:
                 # Update existing ship
@@ -424,12 +427,16 @@ class ShipDialog:
                 
                 # Update waypoints
                 self.ship.waypoints = self.waypoints.copy()
+                print(f"DEBUG: Ship waypoints after update: {self.ship.waypoints}")
                 
                 # Reset current_waypoint if waypoints were changed
                 if self.waypoints:
                     self.ship.current_waypoint = 0
                 else:
                     self.ship.current_waypoint = -1  # No waypoints
+                
+                # Force save since we modified the ship directly
+                ship_manager.save_ships()
             else:
                 # Create new ship
                 new_ship = AISShip(
@@ -450,6 +457,7 @@ class ShipDialog:
                 # Add waypoints to the ship
                 if self.waypoints:
                     new_ship.waypoints = self.waypoints.copy()
+                    print(f"DEBUG: New ship waypoints: {new_ship.waypoints}")
                     # Set current waypoint to first waypoint
                     new_ship.current_waypoint = 0
                     # Optionally set initial course toward first waypoint
@@ -462,8 +470,6 @@ class ShipDialog:
                 # Add to ship manager
                 ship_manager.add_ship(new_ship)
             
-            # Save configurations
-            ship_manager.save_configs()
             self.dialog.destroy()
             
             # Notify parent to update displays
