@@ -321,8 +321,18 @@ class MapVisualization:
         self.map_widget.set_position(center_lat, center_lon)
         
         # If ships are far apart, adjust zoom to fit all
-        if max(max_lat - min_lat, (max_lon - min_lon) * math.cos(math.radians(center_lat))) > 0.1:
-            self.map_widget.fit_bounding_box((min_lat, min_lon), (max_lat, max_lon))
+        lat_range = max_lat - min_lat
+        lon_range = (max_lon - min_lon) * math.cos(math.radians(center_lat))
+        if max(lat_range, lon_range) > 0.1:
+            try:
+                # Ensure proper bounding box order: (top_left), (bottom_right)
+                # top_left = (max_lat, min_lon), bottom_right = (min_lat, max_lon)
+                if max_lat > min_lat and max_lon > min_lon:
+                    self.map_widget.fit_bounding_box((max_lat, min_lon), (min_lat, max_lon))
+            except Exception as e:
+                print(f"Error fitting bounding box: {e}")
+                # Fallback to default zoom
+                self.map_widget.set_zoom(10)
         else:
             self.map_widget.set_zoom(12)  # Default zoom if ships are close together
 
@@ -331,9 +341,12 @@ class MapVisualization:
         if not self.map_available or not self.map_widget:
             return
             
-        for mmsi, track_line in self.track_lines.items():
+        for mmsi, track_line in list(self.track_lines.items()):
             if track_line:
-                self.map_widget.delete(track_line)
+                try:
+                    self.map_widget.delete(track_line)
+                except Exception as e:
+                    print(f"Error deleting track line for MMSI {mmsi}: {e}")
         
         self.track_lines.clear()
         
@@ -349,19 +362,26 @@ class MapVisualization:
             
         show_tracks = self.show_tracks_var.get()
         
-        for mmsi, track_line in self.track_lines.items():
+        for mmsi, track_line in list(self.track_lines.items()):
             if not show_tracks and track_line:
                 # Hide track
-                self.map_widget.delete(track_line)
-                self.track_lines[mmsi] = None
+                try:
+                    self.map_widget.delete(track_line)
+                except Exception as e:
+                    print(f"Error hiding track for MMSI {mmsi}: {e}")
+                finally:
+                    self.track_lines[mmsi] = None
             elif show_tracks and not track_line and mmsi in self.ship_tracks and len(self.ship_tracks[mmsi]) > 1:
                 # Show track
-                track_line = self.map_widget.set_path(
-                    self.ship_tracks[mmsi],
-                    width=2,
-                    color=f"#{mmsi % 0xFFFFFF:06x}"
-                )
-                self.track_lines[mmsi] = track_line
+                try:
+                    track_line = self.map_widget.set_path(
+                        self.ship_tracks[mmsi],
+                        width=2,
+                        color=f"#{mmsi % 0xFFFFFF:06x}"
+                    )
+                    self.track_lines[mmsi] = track_line
+                except Exception as e:
+                    print(f"Error showing track for MMSI {mmsi}: {e}")
 
     def update_map(self, force=False, selected_ship_indices=None):
         """Update the map with current ship positions
@@ -453,7 +473,12 @@ class MapVisualization:
                 if self.show_tracks_var and self.show_tracks_var.get() and len(self.ship_tracks[mmsi]) > 1:
                     # Delete existing track line if it exists
                     if mmsi in self.track_lines and self.track_lines[mmsi]:
-                        self.map_widget.delete(self.track_lines[mmsi])
+                        try:
+                            self.map_widget.delete(self.track_lines[mmsi])
+                        except Exception as e:
+                            print(f"Error deleting track line: {e}")
+                        finally:
+                            self.track_lines[mmsi] = None
                     
                     # Create new track line
                     try:
@@ -467,8 +492,12 @@ class MapVisualization:
                         print(f"Error creating track line: {e}")
                 elif self.show_tracks_var and not self.show_tracks_var.get() and mmsi in self.track_lines and self.track_lines[mmsi]:
                     # Hide track if track display is disabled
-                    self.map_widget.delete(self.track_lines[mmsi])
-                    self.track_lines[mmsi] = None
+                    try:
+                        self.map_widget.delete(self.track_lines[mmsi])
+                    except Exception as e:
+                        print(f"Error hiding track line: {e}")
+                    finally:
+                        self.track_lines[mmsi] = None
         
         # Hide markers for ships that are not selected (if we have a selection)
         if selected_ship_indices is not None:
@@ -476,17 +505,20 @@ class MapVisualization:
                 if mmsi in self.ship_markers:
                     try:
                         self.map_widget.delete(self.ship_markers[mmsi])
-                        del self.ship_markers[mmsi]
                     except Exception as e:
                         print(f"Error hiding marker for MMSI {mmsi}: {e}")
+                    finally:
+                        if mmsi in self.ship_markers:
+                            del self.ship_markers[mmsi]
                 
                 # Also hide tracks for non-selected ships
                 if mmsi in self.track_lines and self.track_lines[mmsi]:
                     try:
                         self.map_widget.delete(self.track_lines[mmsi])
-                        self.track_lines[mmsi] = None
                     except Exception as e:
                         print(f"Error hiding track for MMSI {mmsi}: {e}")
+                    finally:
+                        self.track_lines[mmsi] = None
     
     def _update_custom_map(self, ships, selected_ship_indices):
         """Update the custom map with ship positions"""

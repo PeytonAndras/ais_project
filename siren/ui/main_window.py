@@ -147,10 +147,11 @@ class AISMainWindow:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.signal_listbox.configure(yscrollcommand=scrollbar.set)
 
-        # Populate the signal listbox
+        # Populate the signal listbox with enhanced presets
         signal_presets = get_signal_presets()
         for i, preset in enumerate(signal_presets):
-            self.signal_listbox.insert(i, f"{preset['name']} ({preset['freq']/1e6} MHz)")
+            mode_info = f" ({preset.get('mode', 'legacy')})" if 'mode' in preset else ""
+            self.signal_listbox.insert(i, f"{preset['name']} ({preset['freq']/1e6} MHz){mode_info}")
         self.signal_listbox.selection_set(0)
 
         # Edit signal button with better styling
@@ -274,26 +275,48 @@ For most ship position reports, use type 1, 2, 3, 18, or 19.
         interval_entry = ttk.Entry(sim_control_frame, textvariable=self.sim_interval_var, font=('Arial', 12))
         interval_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=8, padx=(10, 0))
 
+        # Production mode toggle
+        ttk.Label(sim_control_frame, text="Transmission Mode:", font=('Arial', 12)).grid(row=2, column=0, sticky=tk.W, pady=8)
+        self.production_mode_var = tk.BooleanVar(value=True)  # Default to production mode
+        production_check = ttk.Checkbutton(sim_control_frame, text="Production Mode (ITU-R M.1371-5)", 
+                                         variable=self.production_mode_var, command=self.toggle_production_mode)
+        production_check.grid(row=2, column=1, sticky=tk.W, pady=8, padx=(10, 0))
+
+        # Continuous transmission toggle
+        ttk.Label(sim_control_frame, text="Transmission Type:", font=('Arial', 12)).grid(row=3, column=0, sticky=tk.W, pady=8)
+        self.continuous_mode_var = tk.BooleanVar(value=False)
+        continuous_check = ttk.Checkbutton(sim_control_frame, text="Continuous Transmission (SOTDMA)", 
+                                         variable=self.continuous_mode_var)
+        continuous_check.grid(row=3, column=1, sticky=tk.W, pady=8, padx=(10, 0))
+
         # Start/Stop buttons with better styling
         self.start_sim_btn = ttk.Button(sim_control_frame, text="Start Simulation", command=self.start_ship_simulation)
-        self.start_sim_btn.grid(row=2, column=0, columnspan=2, pady=15, ipadx=20, ipady=8, sticky=(tk.W, tk.E))
+        self.start_sim_btn.grid(row=4, column=0, columnspan=2, pady=15, ipadx=20, ipady=8, sticky=(tk.W, tk.E))
 
         self.stop_sim_btn = ttk.Button(sim_control_frame, text="Stop Simulation", command=self.stop_ship_simulation)
-        self.stop_sim_btn.grid(row=3, column=0, columnspan=2, pady=10, ipadx=20, ipady=8, sticky=(tk.W, tk.E))
+        self.stop_sim_btn.grid(row=5, column=0, columnspan=2, pady=10, ipadx=20, ipady=8, sticky=(tk.W, tk.E))
         self.stop_sim_btn.config(state=tk.DISABLED)
+
+        # Transmission status display
+        status_info_frame = ttk.LabelFrame(sim_control_frame, text="Transmission Status", padding=10)
+        status_info_frame.grid(row=6, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=10)
+        
+        self.tx_status_var = tk.StringVar(value="Ready")
+        status_label = ttk.Label(status_info_frame, textvariable=self.tx_status_var, font=('Arial', 11))
+        status_label.pack()
 
         # Simulation log with better sizing
         sim_log_frame = ttk.LabelFrame(sim_control_frame, text="Simulation Log", padding=15)
-        sim_log_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=15)
+        sim_log_frame.grid(row=7, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=15)
 
-        self.sim_log_text = scrolledtext.ScrolledText(sim_log_frame, wrap=tk.WORD, width=50, height=15, font=('Consolas', 11))
+        self.sim_log_text = scrolledtext.ScrolledText(sim_log_frame, wrap=tk.WORD, width=50, height=12, font=('Consolas', 11))
         self.sim_log_text.pack(fill=tk.BOTH, expand=True)
         self.sim_log_text.configure(state='disabled')
 
         # Status indicator with larger font
         self.sim_status_var = tk.StringVar(value="Ready")
         status_label = ttk.Label(sim_control_frame, textvariable=self.sim_status_var, font=('Arial', 12, 'bold'))
-        status_label.grid(row=5, column=0, columnspan=2, pady=10)
+        status_label.grid(row=8, column=0, columnspan=2, pady=10)
 
         # Update ship listbox initially
         self.update_ship_listbox()
@@ -493,32 +516,6 @@ For most ship position reports, use type 1, 2, 3, 18, or 19.
         self.ship_listbox.delete(0, tk.END)
         
         # Reload and display ships
-    def delete_selected_ships(self):
-        """Delete selected ships from the configuration"""
-        selected = self.ship_listbox.curselection()
-        if not selected:
-            messagebox.showerror("Error", "Select ship(s) to delete")
-            return
-        
-        # Confirm deletion
-        if messagebox.askyesno("Confirm Delete", 
-                              f"Delete {len(selected)} selected ship(s)?"):
-            from ..ships.ship_manager import get_ship_manager
-            ship_manager = get_ship_manager()
-            
-            # Delete in reverse order to avoid index shifts
-            for index in sorted(selected, reverse=True):
-                ship_manager.remove_ship_by_index(index)
-            
-            ship_manager.save_configs()
-            self.update_ship_display()
-    
-    def update_ship_display(self):
-        """Update the ship display in the UI"""
-        # Clear current listbox
-        self.ship_listbox.delete(0, tk.END)
-        
-        # Reload and display ships
         from ..ships.ship_manager import get_ship_manager
         ship_manager = get_ship_manager()
         ships = ship_manager.get_ships()
@@ -531,7 +528,7 @@ For most ship position reports, use type 1, 2, 3, 18, or 19.
             self.map_visualization.update_map(force=True)
 
     def start_ship_simulation(self):
-        """Start the ship simulation"""
+        """Start the ship simulation with production or legacy transmission"""
         # Get simulation parameters
         channel_idx = int(self.sim_channel_var.get())
         signal_presets = get_signal_presets()
@@ -550,10 +547,23 @@ For most ship position reports, use type 1, 2, 3, 18, or 19.
         # Get selected signal preset
         signal_preset = signal_presets[channel_idx]
         
+        # Check production mode availability
+        from ..transmission.production_transmitter import is_production_mode_available
+        if self.production_mode_var.get() and not is_production_mode_available():
+            if messagebox.askyesno("Production Mode Unavailable", 
+                                   "Production mode requires SoapySDR but it's not available.\n"
+                                   "Would you like to continue with legacy mode?"):
+                self.production_mode_var.set(False)
+                self.toggle_production_mode()
+            else:
+                return
+        
         # Update UI
-        self.sim_status_var.set("Simulation Running...")
+        mode_text = "Production" if self.production_mode_var.get() else "Legacy"
+        continuous_text = " (Continuous)" if self.continuous_mode_var.get() else ""
+        self.sim_status_var.set(f"Running {mode_text} Mode{continuous_text}")
         self.start_sim_btn.config(state=tk.DISABLED)
-        self.stop_sim_btn.config(state=tk.NORMAL)
+        self.stop_sim_btn.config(state=tk.DISABLED)
         
         # Clear log
         self.sim_log_text.configure(state='normal')
@@ -566,6 +576,8 @@ For most ship position reports, use type 1, 2, 3, 18, or 19.
             self.sim_log_text.insert(tk.END, f"{datetime.now().strftime('%H:%M:%S')}: {msg}\n")
             self.sim_log_text.see(tk.END)
             self.sim_log_text.configure(state='disabled')
+            # Also update transmission status
+            self.root.after(100, self.update_transmission_status)
         
         # Start simulation
         from ..simulation.simulation_controller import start_simulation
@@ -577,15 +589,30 @@ For most ship position reports, use type 1, 2, 3, 18, or 19.
             self.stop_ship_simulation()
             return
         
-        if start_simulation(signal_preset, interval, update_sim_log, selected_indices):
-            update_sim_log("Simulation started successfully")
+        # Use continuous mode if selected and in production mode
+        continuous = self.continuous_mode_var.get() and self.production_mode_var.get()
+        
+        if start_simulation(signal_preset, interval, update_sim_log, selected_indices, continuous):
+            update_sim_log(f"Simulation started in {mode_text} mode{continuous_text}")
+            self.stop_sim_btn.config(state=tk.NORMAL)
+            
             # Start map updates if map is available and set selected ships
             if hasattr(self, 'map_visualization') and self.map_visualization:
                 self.map_visualization.set_selected_ships(selected_indices)
                 self.map_visualization.start_real_time_updates()
+                
+            # Start periodic status updates
+            self.start_status_updates()
         else:
             messagebox.showerror("Error", "Failed to start simulation")
             self.stop_ship_simulation()
+    
+    def start_status_updates(self):
+        """Start periodic transmission status updates"""
+        self.update_transmission_status()
+        # Schedule next update in 5 seconds if simulation is still running
+        if self.stop_sim_btn['state'] == tk.NORMAL:
+            self.root.after(5000, self.start_status_updates)
 
     def stop_ship_simulation(self):
         """Stop the ship simulation"""
@@ -600,3 +627,33 @@ For most ship position reports, use type 1, 2, 3, 18, or 19.
         self.sim_status_var.set("Simulation Stopped")
         self.start_sim_btn.config(state=tk.NORMAL)
         self.stop_sim_btn.config(state=tk.DISABLED)
+
+    def toggle_production_mode(self):
+        """Toggle between production and legacy transmission modes"""
+        from ..simulation.simulation_controller import set_production_transmission
+        enabled = self.production_mode_var.get()
+        set_production_transmission(enabled)
+        
+        mode_text = "Production Mode (ITU-R M.1371-5)" if enabled else "Legacy Mode"
+        self.tx_status_var.set(f"Mode: {mode_text}")
+        
+        # Update continuous mode availability
+        if not enabled:
+            self.continuous_mode_var.set(False)  # Disable continuous mode for legacy
+
+    def update_transmission_status(self):
+        """Update transmission status display"""
+        try:
+            from ..simulation.simulation_controller import get_simulation_transmission_status
+            status = get_simulation_transmission_status()
+            
+            if status.get('running', False):
+                packets = status.get('packets_sent', 0)
+                mode = status.get('mode', 'unknown')
+                self.tx_status_var.set(f"Active: {packets} packets sent ({mode} mode)")
+            else:
+                mode_text = "Production" if self.production_mode_var.get() else "Legacy"
+                self.tx_status_var.set(f"Ready ({mode_text} mode)")
+                
+        except Exception as e:
+            self.tx_status_var.set(f"Status error: {str(e)}")

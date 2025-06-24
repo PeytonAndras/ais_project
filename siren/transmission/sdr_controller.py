@@ -2,13 +2,22 @@
 Transmission Module
 
 Handles SDR transmission using HackRF, LimeSDR, and other SoapySDR devices.
-Contains transmission logic and device management from the original implementation.
+Enhanced with production-ready AIS implementation from hybrid_maritime_ais.
+Contains both legacy transmission logic and new production capabilities.
 """
 
 import time
 import numpy as np
 from ..signal.modulation import create_ais_signal
 from ..protocol.ais_encoding import char_to_sixbit
+from .production_transmitter import (
+    ProductionAISTransmitter, 
+    TransmissionConfig, 
+    OperationMode,
+    get_production_transmitter,
+    create_production_config,
+    is_production_mode_available
+)
 
 try:
     import SoapySDR
@@ -19,18 +28,108 @@ except ImportError:
     SDR_AVAILABLE = False
 
 class TransmissionController:
-    """Controls SDR transmission operations"""
+    """Controls SDR transmission operations with production-ready capabilities"""
     
     def __init__(self):
         self.sdr = None
         self.tx_stream = None
+        self.production_transmitter = None
+        self.use_production_mode = True  # Default to production mode
+        
+    def set_production_mode(self, enabled: bool):
+        """Enable or disable production mode transmission"""
+        self.use_production_mode = enabled
+        
+    def get_production_transmitter(self, config: TransmissionConfig = None) -> ProductionAISTransmitter:
+        """Get production transmitter instance"""
+        if self.production_transmitter is None:
+            self.production_transmitter = get_production_transmitter(config)
+        return self.production_transmitter
+        
+    def transmit_ships_production(self, ships, status_callback=None, config: TransmissionConfig = None):
+        """Transmit multiple ships using production-ready AIS implementation"""
+        if not is_production_mode_available():
+            if status_callback:
+                status_callback("Production mode not available - SoapySDR not installed")
+            return False
+        
+        try:
+            transmitter = self.get_production_transmitter(config)
+            success_count = transmitter.transmit_ships(ships, status_callback)
+            
+            if status_callback:
+                status_callback(f"Production transmission complete: {success_count}/{len(ships)} ships transmitted")
+            
+            return success_count > 0
+            
+        except Exception as e:
+            error_msg = f"Production transmission error: {str(e)}"
+            if status_callback:
+                status_callback(error_msg)
+            return False
+    
+    def start_continuous_production_transmission(self, ships, update_rate=10.0, status_callback=None, config: TransmissionConfig = None):
+        """Start continuous production transmission"""
+        if not is_production_mode_available():
+            if status_callback:
+                status_callback("Production mode not available - SoapySDR not installed")
+            return False
+        
+        try:
+            if config is None:
+                config = create_production_config(
+                    mode=OperationMode.PRODUCTION,
+                    update_rate=update_rate,
+                    enable_sotdma=True
+                )
+            
+            transmitter = self.get_production_transmitter(config)
+            transmitter.start_continuous_transmission(ships, status_callback)
+            
+            if status_callback:
+                status_callback(f"Started continuous production transmission for {len(ships)} ships")
+            
+            return True
+            
+        except Exception as e:
+            error_msg = f"Failed to start continuous transmission: {str(e)}"
+            if status_callback:
+                status_callback(error_msg)
+            return False
+    
+    def stop_continuous_transmission(self):
+        """Stop continuous transmission"""
+        if self.production_transmitter:
+            self.production_transmitter.stop_transmission()
+    
+    def get_transmission_status(self):
+        """Get transmission status"""
+        if self.production_transmitter:
+            return self.production_transmitter.get_status()
+        else:
+            return {
+                'mode': 'legacy',
+                'running': False,
+                'packets_sent': 0,
+                'hardware_available': self.is_available()
+            }
         
     def is_available(self):
         """Check if SDR transmission is available"""
         return SDR_AVAILABLE
     
-    def transmit_signal(self, signal_preset, nmea_sentence=None, status_callback=None):
-        """Transmit a signal using HackRF or LimeSDR"""
+    def transmit_signal(self, signal_preset, nmea_sentence=None, status_callback=None, ships=None):
+        """Transmit a signal using HackRF or LimeSDR with production or legacy mode"""
+        
+        # If ships are provided and production mode is enabled, use production transmitter
+        if ships and self.use_production_mode and is_production_mode_available():
+            return self.transmit_ships_production(ships, status_callback)
+        
+        # Fall back to legacy transmission mode
+        return self._transmit_signal_legacy(signal_preset, nmea_sentence, status_callback)
+    
+    def _transmit_signal_legacy(self, signal_preset, nmea_sentence=None, status_callback=None):
+        """Legacy transmission method (original implementation)"""
         if not SDR_AVAILABLE:
             message = "SoapySDR not available. Install with: pip install soapysdr"
             if status_callback:
@@ -226,10 +325,13 @@ If problems persist, try restarting your computer.
             self.sdr = None
         time.sleep(0.5)
 
-# Signal configuration presets
+# Enhanced signal configuration presets with production modes
 SIGNAL_PRESETS = [
-    {"name": "AIS Channel A", "freq": 161.975e6, "gain": 70, "modulation": "GMSK", "sdr_type": "hackrf"},
-    {"name": "AIS Channel B", "freq": 162.025e6, "gain": 65, "modulation": "GMSK", "sdr_type": "hackrf"},
+    {"name": "AIS Channel A (Production)", "freq": 161.975e6, "gain": 40, "modulation": "GMSK", "sdr_type": "production", "mode": "production"},
+    {"name": "AIS Channel B (Production)", "freq": 162.025e6, "gain": 40, "modulation": "GMSK", "sdr_type": "production", "mode": "production"},
+    {"name": "AIS Channel A (Legacy)", "freq": 161.975e6, "gain": 70, "modulation": "GMSK", "sdr_type": "hackrf", "mode": "legacy"},
+    {"name": "AIS Channel B (Legacy)", "freq": 162.025e6, "gain": 65, "modulation": "GMSK", "sdr_type": "hackrf", "mode": "legacy"},
+    {"name": "rtl_ais Testing Mode", "freq": 162.025e6, "gain": 35, "modulation": "FSK", "sdr_type": "production", "mode": "rtl_ais_testing"},
 ]
 
 # Global transmission controller instance
@@ -246,10 +348,37 @@ def get_signal_presets():
     """Get available signal presets"""
     return SIGNAL_PRESETS
 
-def transmit_signal(signal_preset, nmea_sentence=None, status_callback=None):
-    """Global function to transmit a signal"""
+def transmit_signal(signal_preset, nmea_sentence=None, status_callback=None, ships=None):
+    """Global function to transmit a signal with production or legacy mode"""
     controller = get_transmission_controller()
-    return controller.transmit_signal(signal_preset, nmea_sentence, status_callback)
+    return controller.transmit_signal(signal_preset, nmea_sentence, status_callback, ships)
+
+def transmit_ships_production(ships, status_callback=None, mode=OperationMode.PRODUCTION, **kwargs):
+    """Global function to transmit ships using production mode"""
+    controller = get_transmission_controller()
+    config = create_production_config(mode=mode, **kwargs)
+    return controller.transmit_ships_production(ships, status_callback, config)
+
+def start_continuous_transmission(ships, update_rate=10.0, status_callback=None, mode=OperationMode.PRODUCTION, **kwargs):
+    """Global function to start continuous production transmission"""
+    controller = get_transmission_controller()
+    config = create_production_config(mode=mode, update_rate=update_rate, **kwargs)
+    return controller.start_continuous_production_transmission(ships, update_rate, status_callback, config)
+
+def stop_continuous_transmission():
+    """Global function to stop continuous transmission"""
+    controller = get_transmission_controller()
+    controller.stop_continuous_transmission()
+
+def get_transmission_status():
+    """Global function to get transmission status"""
+    controller = get_transmission_controller()
+    return controller.get_transmission_status()
+
+def set_production_mode(enabled: bool):
+    """Global function to enable/disable production mode"""
+    controller = get_transmission_controller()
+    controller.set_production_mode(enabled)
 
 def is_sdr_available():
     """Check if SDR support is available"""
