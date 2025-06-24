@@ -23,7 +23,7 @@ class AISMainWindow:
     
     def __init__(self):
         self.root = tk.Tk()
-        self.root.title("AIS NMEA Generator & Transmitter")
+        self.root.title("SIREN: Spoofed Identification & Real-time Emulation Node")
         self.root.minsize(800, 600)
         
         # Check dependencies
@@ -331,7 +331,7 @@ For most ship position reports, use type 1, 2, 3, 18, or 19.
         title_frame.pack(side=tk.TOP, fill=tk.X)
         
         # Application title
-        ttk.Label(title_frame, text="AIS NMEA Generator & Transmitter - NATO Navy Simulation", 
+        ttk.Label(title_frame, text="SIREN: Spoofed Identification & Real-time Emulation Node", 
                  font=('Arial', 14, 'bold'), foreground='white', background='#2C3E50').pack(side=tk.LEFT, padx=20, pady=8)
         
         # Exit fullscreen button
