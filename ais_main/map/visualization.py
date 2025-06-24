@@ -23,6 +23,9 @@ class MapVisualization:
         self.map_available = map_available
         self.pil_available = pil_available
         
+        # Map mode: 'online', 'custom', or 'fallback'
+        self.map_mode = 'online' if map_available else 'fallback'
+        
         # Initialize tracking variables
         self.ship_markers = {}  # Dictionary to store ship markers on map
         self.ship_tracks = {}   # Dictionary to store historical positions for each ship
@@ -30,6 +33,7 @@ class MapVisualization:
         
         # Map and control references
         self.map_widget = None
+        self.custom_map_viewer = None
         self.ship_info_text = None
         self.track_history_var = None
         self.show_tracks_var = None
@@ -48,36 +52,103 @@ class MapVisualization:
         
     def setup_map_ui(self):
         """Setup the complete map user interface"""
-        # --- Map Search Bar ---
-        if self.map_available:
-            search_frame = ttk.Frame(self.parent_frame)
-            search_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 5))
+        # --- Map Mode Selection ---
+        mode_frame = ttk.Frame(self.parent_frame)
+        mode_frame.grid(row=0, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 5))
+        
+        ttk.Label(mode_frame, text="Map Mode:").pack(side=tk.LEFT, padx=5)
+        self.map_mode_var = tk.StringVar(value=self.map_mode)
+        mode_options = ["online", "custom"]
+        if not self.map_available:
+            mode_options = ["custom", "fallback"]
+            self.map_mode_var.set("custom")
+        
+        mode_combo = ttk.Combobox(mode_frame, textvariable=self.map_mode_var, 
+                                 values=mode_options, state="readonly", width=15)
+        mode_combo.pack(side=tk.LEFT, padx=5)
+        mode_combo.bind("<<ComboboxSelected>>", self.change_map_mode)
+        
+        # --- Map Search Bar (for online mode only) ---
+        self.search_frame = ttk.Frame(self.parent_frame)
+        self.search_frame.grid(row=1, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 5))
+        if self.map_available and self.map_mode == 'online':
             self.search_var = tk.StringVar()
-            ttk.Label(search_frame, text="Search Location:").pack(side=tk.LEFT, padx=5)
-            search_entry = ttk.Entry(search_frame, textvariable=self.search_var, width=30)
+            ttk.Label(self.search_frame, text="Search Location:").pack(side=tk.LEFT, padx=5)
+            search_entry = ttk.Entry(self.search_frame, textvariable=self.search_var, width=30)
             search_entry.pack(side=tk.LEFT, padx=5)
-            ttk.Button(search_frame, text="Go", command=self.do_search).pack(side=tk.LEFT, padx=5)
+            ttk.Button(self.search_frame, text="Go", command=self.do_search).pack(side=tk.LEFT, padx=5)
             search_entry.bind('<Return>', lambda event: self.do_search())
+        else:
+            self.search_frame.grid_remove()
 
         # Split map frame into two parts: map and control panel
         map_container = ttk.Frame(self.parent_frame)
-        map_container.grid(row=1, column=0, sticky=(tk.N, tk.W, tk.E, tk.S))
+        map_container.grid(row=2, column=0, sticky=(tk.N, tk.W, tk.E, tk.S))
 
         map_control_panel = ttk.LabelFrame(self.parent_frame, text="Map Controls", padding=10)
-        map_control_panel.grid(row=1, column=1, sticky=(tk.N, tk.W, tk.S), padx=5)
+        map_control_panel.grid(row=2, column=1, sticky=(tk.N, tk.W, tk.S), padx=5)
 
         # Make the map expand with window resizing
         self.parent_frame.columnconfigure(0, weight=1)
-        self.parent_frame.rowconfigure(1, weight=1)
+        self.parent_frame.rowconfigure(2, weight=1)
         map_container.columnconfigure(0, weight=1)
         map_container.rowconfigure(0, weight=1)
 
-        if self.map_available:
-            self.setup_interactive_map(map_container)
-        else:
-            self.setup_fallback_map(map_container)
-            
+        # Setup map based on mode
+        self.setup_map_container(map_container)
         self.setup_map_controls(map_control_panel)
+
+    def setup_map_container(self, container):
+        """Setup the map container based on current mode"""
+        if self.map_mode == 'online' and self.map_available:
+            self.setup_interactive_map(container)
+        elif self.map_mode == 'custom':
+            self.setup_custom_map(container)
+        else:
+            self.setup_fallback_map(container)
+    
+    def setup_custom_map(self, container):
+        """Setup custom map viewer"""
+        try:
+            from .custom_map import CustomMapViewer
+            self.custom_map_viewer = CustomMapViewer(container)
+            
+            # Set up waypoint selection callback
+            def on_waypoint_selected(lat, lon):
+                # This could be used for adding waypoints to ships
+                print(f"Waypoint selected: {lat:.6f}, {lon:.6f}")
+                # You could integrate this with the ship waypoint system
+            
+            self.custom_map_viewer.set_waypoint_selection_callback(on_waypoint_selected)
+            
+        except Exception as e:
+            print(f"Error setting up custom map: {e}")
+            self.setup_fallback_map(container)
+    
+    def change_map_mode(self, event=None):
+        """Change between online and custom map modes"""
+        new_mode = self.map_mode_var.get()
+        if new_mode != self.map_mode:
+            self.map_mode = new_mode
+            
+            # Clear existing map widgets
+            for widget in self.parent_frame.grid_slaves(row=2, column=0):
+                widget.destroy()
+            
+            # Recreate map container
+            map_container = ttk.Frame(self.parent_frame)
+            map_container.grid(row=2, column=0, sticky=(tk.N, tk.W, tk.E, tk.S))
+            map_container.columnconfigure(0, weight=1)
+            map_container.rowconfigure(0, weight=1)
+            
+            # Setup new map
+            self.setup_map_container(map_container)
+            
+            # Show/hide search bar based on mode
+            if new_mode == 'online' and self.map_available:
+                self.search_frame.grid()
+            else:
+                self.search_frame.grid_remove()
 
     def setup_interactive_map(self, container):
         """Setup the interactive map widget with full functionality"""
@@ -299,15 +370,6 @@ class MapVisualization:
             force: Force update even if positions haven't changed
             selected_ship_indices: List of ship indices to display. If None, shows all ships.
         """
-        if not self.map_available or not self.map_widget:
-            return
-            
-        # Get track history length
-        try:
-            max_track_points = max(1, min(100, int(self.track_history_var.get())))
-        except (ValueError, AttributeError):
-            max_track_points = 20  # Default value
-        
         from ..ships.ship_manager import get_ship_manager
         ship_manager = get_ship_manager()
         
@@ -316,6 +378,23 @@ class MapVisualization:
             ships = ship_manager.get_selected_ships(selected_ship_indices)
         else:
             ships = ship_manager.get_ships()
+        
+        # Update based on map mode
+        if self.map_mode == 'online' and self.map_available and self.map_widget:
+            self._update_online_map(ships, force, selected_ship_indices)
+        elif self.map_mode == 'custom' and self.custom_map_viewer:
+            self._update_custom_map(ships, selected_ship_indices)
+    
+    def _update_online_map(self, ships, force, selected_ship_indices):
+        """Update the online interactive map"""
+        if not self.map_widget:
+            return
+            
+        # Get track history length
+        try:
+            max_track_points = max(1, min(100, int(self.track_history_var.get())))
+        except (ValueError, AttributeError):
+            max_track_points = 20  # Default value
         
         # Hide all existing markers first
         all_mmsis = set(self.ship_markers.keys())
@@ -408,6 +487,11 @@ class MapVisualization:
                         self.track_lines[mmsi] = None
                     except Exception as e:
                         print(f"Error hiding track for MMSI {mmsi}: {e}")
+    
+    def _update_custom_map(self, ships, selected_ship_indices):
+        """Update the custom map with ship positions"""
+        if self.custom_map_viewer:
+            self.custom_map_viewer.update_ships(ships, selected_ship_indices)
 
     def set_selected_ships(self, selected_ship_indices):
         """Set which ships should be displayed on the map

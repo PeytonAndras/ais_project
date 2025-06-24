@@ -267,6 +267,9 @@ class ShipDialog:
         ttk.Button(waypoints_action_frame, text="Remove", command=self.remove_waypoint).pack(side=tk.LEFT, padx=5)
         ttk.Button(waypoints_action_frame, text="Clear All", command=self.clear_waypoints).pack(side=tk.LEFT, padx=5)
         
+        # Custom map button
+        ttk.Button(waypoints_action_frame, text="Custom Map", command=self.open_custom_map_waypoint_picker).pack(side=tk.LEFT, padx=5)
+        
         ttk.Label(waypoints_frame, text="Note: Ship will follow waypoints in order. Max 20 waypoints.", wraplength=400).pack(pady=10)
     
     def create_waypoint_map(self, waypoints_frame, waypoints_action_frame):
@@ -478,6 +481,68 @@ class ShipDialog:
             
         except ValueError as e:
             messagebox.showerror("Invalid Input", str(e))
+    
+    def open_custom_map_waypoint_picker(self):
+        """Open custom map for waypoint selection"""
+        try:
+            from ..map.visualization import get_map_visualization
+            map_viz = get_map_visualization()
+            
+            if map_viz and map_viz.map_mode == 'custom' and map_viz.custom_map_viewer:
+                # Create a modal dialog with instructions
+                waypoint_dialog = tk.Toplevel(self.dialog)
+                waypoint_dialog.title("Select Waypoint on Map")
+                waypoint_dialog.geometry("400x150")
+                waypoint_dialog.transient(self.dialog)
+                waypoint_dialog.grab_set()
+                
+                # Center the dialog
+                waypoint_dialog.update_idletasks()
+                x = (waypoint_dialog.winfo_screenwidth() - waypoint_dialog.winfo_width()) // 2
+                y = (waypoint_dialog.winfo_screenheight() - waypoint_dialog.winfo_height()) // 2
+                waypoint_dialog.geometry(f"+{x}+{y}")
+                
+                ttk.Label(waypoint_dialog, 
+                         text="Click on the map to select a waypoint location.\n"
+                              "The waypoint will be added to your ship's route.",
+                         justify=tk.CENTER).pack(pady=20)
+                
+                self.waypoint_selected = False
+                
+                def on_waypoint_selected(lat, lon):
+                    """Handle waypoint selection from map"""
+                    self.waypoints.append([lat, lon])
+                    self.waypoint_selected = True
+                    waypoint_dialog.destroy()
+                    self.refresh_waypoint_list()
+                    messagebox.showinfo("Waypoint Added", 
+                                       f"Waypoint added at {lat:.6f}, {lon:.6f}")
+                
+                # Temporarily set the waypoint callback
+                original_callback = map_viz.custom_map_viewer.waypoint_selection_callback
+                map_viz.custom_map_viewer.set_waypoint_selection_callback(on_waypoint_selected)
+                
+                def on_dialog_close():
+                    # Restore original callback
+                    map_viz.custom_map_viewer.set_waypoint_selection_callback(original_callback)
+                    waypoint_dialog.destroy()
+                
+                ttk.Button(waypoint_dialog, text="Cancel", 
+                          command=on_dialog_close).pack(pady=10)
+                
+                waypoint_dialog.protocol("WM_DELETE_WINDOW", on_dialog_close)
+                waypoint_dialog.wait_window()
+                
+            else:
+                messagebox.showinfo("Custom Map Required", 
+                                   "Please switch to custom map mode and load a map to use this feature.")
+                
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to open map waypoint picker: {e}")
+
+    def setup_waypoint_management(self, parent_notebook):
+        """Setup waypoint management controls and map integration"""
+        pass  # Already handled in create_waypoints_tab
 
 
 def add_ship_dialog(parent):
