@@ -20,15 +20,22 @@ class SimulationController:
         self.simulation_active = False
         self.simulation_thread = None
         
-    def start_simulation(self, signal_preset, interval=10, update_status_callback=None):
-        """Start the ship simulation"""
+    def start_simulation(self, signal_preset, interval=10, update_status_callback=None, selected_ship_indices=None):
+        """Start the ship simulation
+        
+        Args:
+            signal_preset: Signal configuration for transmission
+            interval: Time between simulation cycles
+            update_status_callback: Callback for status updates
+            selected_ship_indices: List of ship indices to simulate. If None, simulates all ships.
+        """
         if self.simulation_active:
             return False
             
         self.simulation_active = True
         self.simulation_thread = threading.Thread(
             target=self._run_simulation,
-            args=(signal_preset, interval, update_status_callback),
+            args=(signal_preset, interval, update_status_callback, selected_ship_indices),
             daemon=True
         )
         self.simulation_thread.start()
@@ -44,7 +51,16 @@ class SimulationController:
         """Check if simulation is running"""
         return self.simulation_active
     
-    def _run_simulation(self, signal_preset, interval, update_status_callback):
+    def _trigger_map_update(self):
+        """Trigger a map update in a thread-safe manner"""
+        try:
+            # Import here to avoid circular imports
+            from ..map.visualization import update_ships_on_map
+            update_ships_on_map()
+        except Exception as e:
+            print(f"Error updating map: {e}")
+    
+    def _run_simulation(self, signal_preset, interval, update_status_callback, selected_ship_indices=None):
         """Run AIS ship simulation"""
         def update_status(msg):
             print(msg)
@@ -55,17 +71,28 @@ class SimulationController:
         
         try:
             update_status("Starting AIS ship simulation...")
-            ships = self.ship_manager.get_ships()
+            
+            # Get ships to simulate
+            if selected_ship_indices:
+                ships = self.ship_manager.get_selected_ships(selected_ship_indices)
+                update_status(f"Simulating {len(ships)} selected ships")
+            else:
+                ships = self.ship_manager.get_ships()
+                selected_ship_indices = list(range(len(ships)))  # All ships
+                update_status(f"Simulating all {len(ships)} ships")
             
             while self.simulation_active and ships:
                 # Calculate elapsed time
                 current_time = datetime.now()
                 elapsed = (current_time - last_move_time).total_seconds()
                 
-                # Move all ships
-                self.ship_manager.move_all_ships(elapsed)
+                # Move only selected ships
+                self.ship_manager.move_all_ships(elapsed, selected_ship_indices)
                 
-                # Transmit AIS message for each ship
+                # Update map after moving ships
+                self._trigger_map_update()
+                
+                # Transmit AIS message for each selected ship
                 for i, ship in enumerate(ships):
                     if not self.simulation_active:
                         break
@@ -115,11 +142,18 @@ def get_simulation_controller():
         _simulation_controller = SimulationController(get_ship_manager())
     return _simulation_controller
 
-def start_simulation(signal_preset, interval=10, update_status_callback=None):
-    """Start the ship simulation"""
+def start_simulation(signal_preset, interval=10, update_status_callback=None, selected_ship_indices=None):
+    """Start the ship simulation
+    
+    Args:
+        signal_preset: Signal configuration for transmission
+        interval: Time between simulation cycles
+        update_status_callback: Callback for status updates
+        selected_ship_indices: List of ship indices to simulate. If None, simulates all ships.
+    """
     global _ship_simulation_active
     controller = get_simulation_controller()
-    success = controller.start_simulation(signal_preset, interval, update_status_callback)
+    success = controller.start_simulation(signal_preset, interval, update_status_callback, selected_ship_indices)
     if success:
         _ship_simulation_active = True
     return success

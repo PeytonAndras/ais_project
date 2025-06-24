@@ -430,16 +430,20 @@ class MapVisualization:
         if not self.map_available:
             return
             
-        def update_loop():
-            while getattr(self, '_updating', True):
-                try:
-                    self.parent_frame.after(0, self.update_map)
-                    time.sleep(1)  # Update every second
-                except:
-                    break
-        
         self._updating = True
-        threading.Thread(target=update_loop, daemon=True).start()
+        # Use a periodic timer instead of a background thread
+        self._schedule_update()
+
+    def _schedule_update(self):
+        """Schedule the next map update using Tkinter's after method"""
+        if self._updating and self.map_available:
+            try:
+                self.update_map()
+                # Schedule the next update in 1 second (1000 ms)
+                self.parent_frame.after(1000, self._schedule_update)
+            except Exception as e:
+                print(f"Error in scheduled map update: {e}")
+                self._updating = False
 
     def stop_real_time_updates(self):
         """Stop real-time map updates"""
@@ -466,9 +470,13 @@ def get_map_visualization(parent_frame=None, map_available=False, pil_available=
     return _map_visualization
 
 def update_ships_on_map():
-    """Global function to update ships on map"""
-    if _map_visualization:
-        _map_visualization.update_map()
+    """Global function to update ships on map - thread-safe"""
+    if _map_visualization and _map_visualization.map_available:
+        try:
+            # Schedule the update on the main thread
+            _map_visualization.parent_frame.after(0, _map_visualization.update_map)
+        except Exception as e:
+            print(f"Error scheduling map update: {e}")
 
 def center_map_on_ships():
     """Global function to center map on ships"""

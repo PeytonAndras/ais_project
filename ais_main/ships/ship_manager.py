@@ -82,6 +82,41 @@ class ShipManager:
             return self.ships[index]
         return None
     
+    def move_all_ships(self, elapsed_seconds, selected_indices=None):
+        """Move ships based on elapsed time
+        
+        Args:
+            elapsed_seconds: Time elapsed since last update
+            selected_indices: List of ship indices to move. If None, moves all ships.
+        """
+        if selected_indices is None:
+            # Move all ships if no selection specified
+            for ship in self.ships:
+                ship.move(elapsed_seconds)
+        else:
+            # Only move selected ships
+            for index in selected_indices:
+                if 0 <= index < len(self.ships):
+                    self.ships[index].move(elapsed_seconds)
+    
+    def get_selected_ships(self, selected_indices):
+        """Get only the selected ships for transmission
+        
+        Args:
+            selected_indices: List of ship indices to get
+            
+        Returns:
+            List of selected ship objects
+        """
+        if not selected_indices:
+            return []
+        
+        selected_ships = []
+        for index in selected_indices:
+            if 0 <= index < len(self.ships):
+                selected_ships.append(self.ships[index])
+        return selected_ships
+    
     def _notify_update(self):
         """Notify UI of ship updates"""
         if _ship_listbox_callback:

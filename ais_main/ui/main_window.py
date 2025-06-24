@@ -569,7 +569,15 @@ For most ship position reports, use type 1, 2, 3, 18, or 19.
         
         # Start simulation
         from ..simulation.simulation_controller import start_simulation
-        if start_simulation(signal_preset, interval, update_sim_log):
+        
+        # Get selected ship indices
+        selected_indices = list(self.ship_listbox.curselection())
+        if not selected_indices:
+            messagebox.showwarning("No Ships Selected", "Please select at least one ship to simulate.")
+            self.stop_ship_simulation()
+            return
+        
+        if start_simulation(signal_preset, interval, update_sim_log, selected_indices):
             update_sim_log("Simulation started successfully")
             # Start map updates if map is available
             if hasattr(self, 'map_visualization') and self.map_visualization:
