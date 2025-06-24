@@ -38,13 +38,17 @@ class AISMainWindow:
         
     def setup_ui(self):
         """Setup the main UI structure"""
-        # Main frame
-        self.main_frame = ttk.Frame(self.root, padding=10)
+        # Main frame with better padding for fullscreen
+        self.main_frame = ttk.Frame(self.root, padding=20)
         self.main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Create tabbed interface
+        # Create tabbed interface with larger font
+        style = ttk.Style()
+        style.configure('TNotebook.Tab', padding=[20, 10])
+        style.configure('TNotebook', tabposition='n')
+        
         self.notebook = ttk.Notebook(self.main_frame)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
         # Create tabs
         self.setup_ais_generator_tab()
@@ -52,33 +56,43 @@ class AISMainWindow:
         self.setup_ship_simulation_tab()
         self.setup_map_visualization_tab()
         
-        # Status bar
+        # Status bar with better styling
         self.status_var = tk.StringVar()
         self.status_var.set("Ready" if self.sdr_available else "SDR support not available")
-        ttk.Label(self.main_frame, textvariable=self.status_var, 
-                 relief=tk.SUNKEN, anchor=tk.W).pack(side=tk.BOTTOM, fill=tk.X)
+        status_frame = ttk.Frame(self.main_frame)
+        status_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
+        
+        ttk.Label(status_frame, textvariable=self.status_var, 
+                 relief=tk.SUNKEN, anchor=tk.W, font=('Arial', 11),
+                 padding=(10, 5)).pack(side=tk.LEFT, fill=tk.X, expand=True)
 
     def setup_ais_generator_tab(self):
         """Setup the AIS message generator tab"""
         # ----- Tab 1: AIS Message Generator -----
-        ais_frame = ttk.Frame(self.notebook, padding=10)
+        ais_frame = ttk.Frame(self.notebook, padding=20)
         self.notebook.add(ais_frame, text="AIS Generator")
 
-        # Left side - Input parameters
-        input_frame = ttk.LabelFrame(ais_frame, text="Message Parameters", padding=10)
-        input_frame.grid(row=0, column=0, sticky=(tk.N, tk.W, tk.E, tk.S), padx=5, pady=5)
+        # Configure grid weights for better scaling
+        ais_frame.columnconfigure(0, weight=1)
+        ais_frame.columnconfigure(1, weight=1) 
+        ais_frame.columnconfigure(2, weight=1)
+        ais_frame.rowconfigure(0, weight=1)
 
-        # Create input fields
+        # Left side - Input parameters
+        input_frame = ttk.LabelFrame(ais_frame, text="Message Parameters", padding=15)
+        input_frame.grid(row=0, column=0, sticky=(tk.N, tk.W, tk.E, tk.S), padx=10, pady=10)
+
+        # Create input fields with better fonts
         labels = ["Message Type", "Repeat", "MMSI", "Nav Status",
                   "ROT (-127..127)", "SOG (knots)", "Accuracy (0/1)",
                   "Longitude (°)", "Latitude (°)", "COG (°)",
                   "Heading (°)", "Timestamp (s)"]
         self.vars_ = []
         for i, lbl in enumerate(labels):
-            ttk.Label(input_frame, text=lbl).grid(column=0, row=i, sticky=tk.W, padx=5, pady=2)
+            ttk.Label(input_frame, text=lbl, font=('Arial', 11)).grid(column=0, row=i, sticky=tk.W, padx=8, pady=4)
             var = tk.StringVar(value="0")
-            entry = ttk.Entry(input_frame, textvariable=var, width=15)
-            entry.grid(column=1, row=i, sticky=tk.W, padx=5, pady=2)
+            entry = ttk.Entry(input_frame, textvariable=var, width=18, font=('Arial', 11))
+            entry.grid(column=1, row=i, sticky=tk.W, padx=8, pady=4)
             self.vars_.append(var)
 
         # Assign variables
@@ -96,33 +110,36 @@ class AISMainWindow:
         self.sog_var.set("10.0")
         self.cog_var.set("90.0")
 
-        # Generate button
+        # Generate button with better styling
         gen_btn = ttk.Button(input_frame, text="Generate Message", command=self.generate)
-        gen_btn.grid(column=0, row=len(labels)+1, columnspan=2, pady=10)
+        gen_btn.grid(column=0, row=len(labels)+1, columnspan=2, pady=15, ipadx=15, ipady=8)
 
         # Right side - Output
-        output_frame = ttk.LabelFrame(ais_frame, text="Message Output", padding=10)
-        output_frame.grid(row=0, column=1, sticky=(tk.N, tk.W, tk.E, tk.S), padx=5, pady=5)
+        output_frame = ttk.LabelFrame(ais_frame, text="Message Output", padding=15)
+        output_frame.grid(row=0, column=1, sticky=(tk.N, tk.W, tk.E, tk.S), padx=10, pady=10)
 
-        # Output fields
-        ttk.Label(output_frame, text="AIS Payload:").grid(column=0, row=0, sticky=tk.W, pady=5)
+        # Configure column weights
+        output_frame.columnconfigure(0, weight=1)
+
+        # Output fields with better styling
+        ttk.Label(output_frame, text="AIS Payload:", font=('Arial', 11, 'bold')).grid(column=0, row=0, sticky=tk.W, pady=8)
         self.payload_var = tk.StringVar()
-        ttk.Entry(output_frame, textvariable=self.payload_var, width=40).grid(column=0, row=1, sticky=(tk.W, tk.E))
+        ttk.Entry(output_frame, textvariable=self.payload_var, width=50, font=('Consolas', 10)).grid(column=0, row=1, sticky=(tk.W, tk.E), pady=(0, 10))
 
-        ttk.Label(output_frame, text="Fill Bits:").grid(column=0, row=2, sticky=tk.W, pady=5)
+        ttk.Label(output_frame, text="Fill Bits:", font=('Arial', 11, 'bold')).grid(column=0, row=2, sticky=tk.W, pady=8)
         self.fill_var = tk.StringVar()
-        ttk.Entry(output_frame, textvariable=self.fill_var, width=5).grid(column=0, row=3, sticky=tk.W)
+        ttk.Entry(output_frame, textvariable=self.fill_var, width=8, font=('Arial', 11)).grid(column=0, row=3, sticky=tk.W, pady=(0, 10))
 
-        ttk.Label(output_frame, text="NMEA Sentence:").grid(column=0, row=4, sticky=tk.W, pady=5)
+        ttk.Label(output_frame, text="NMEA Sentence:", font=('Arial', 11, 'bold')).grid(column=0, row=4, sticky=tk.W, pady=8)
         self.nmea_var = tk.StringVar()
-        ttk.Entry(output_frame, textvariable=self.nmea_var, width=60).grid(column=0, row=5, sticky=(tk.W, tk.E))
+        ttk.Entry(output_frame, textvariable=self.nmea_var, width=70, font=('Consolas', 10)).grid(column=0, row=5, sticky=(tk.W, tk.E), pady=(0, 15))
 
-        # Signal selection
-        signal_frame = ttk.LabelFrame(output_frame, text="Transmission Signal", padding=10)
-        signal_frame.grid(column=0, row=6, sticky=(tk.W, tk.E), pady=10)
+        # Signal selection with better styling
+        signal_frame = ttk.LabelFrame(output_frame, text="Transmission Signal", padding=12)
+        signal_frame.grid(column=0, row=6, sticky=(tk.W, tk.E), pady=15)
 
-        # Listbox for signal selection
-        self.signal_listbox = tk.Listbox(signal_frame, height=5)
+        # Listbox for signal selection with better font
+        self.signal_listbox = tk.Listbox(signal_frame, height=6, font=('Arial', 11))
         self.signal_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # Add scroll bar
@@ -136,21 +153,21 @@ class AISMainWindow:
             self.signal_listbox.insert(i, f"{preset['name']} ({preset['freq']/1e6} MHz)")
         self.signal_listbox.selection_set(0)
 
-        # Edit signal button
+        # Edit signal button with better styling
         edit_btn = ttk.Button(output_frame, text="Edit Signal Settings", command=self.edit_signal_preset)
-        edit_btn.grid(column=0, row=7, sticky=tk.W, pady=5)
+        edit_btn.grid(column=0, row=7, sticky=tk.W, pady=12, ipadx=10, ipady=5)
 
-        # Transmit button
+        # Transmit button with better styling
         tx_btn = ttk.Button(output_frame, text="Transmit Message", command=self.transmit)
-        tx_btn.grid(column=0, row=8, sticky=(tk.W, tk.E), pady=10)
+        tx_btn.grid(column=0, row=8, sticky=(tk.W, tk.E), pady=15, ipadx=15, ipady=8)
         if not self.sdr_available:
             tx_btn.config(state="disabled")
 
-        # --- AIS Message Type Reference Panel ---
-        ais_type_frame = ttk.LabelFrame(ais_frame, text="AIS Message Types Reference", padding=10)
-        ais_type_frame.grid(row=0, column=2, sticky=(tk.N, tk.W, tk.E, tk.S), padx=10, pady=5)
+        # --- AIS Message Type Reference Panel with better sizing ---
+        ais_type_frame = ttk.LabelFrame(ais_frame, text="AIS Message Types Reference", padding=15)
+        ais_type_frame.grid(row=0, column=2, sticky=(tk.N, tk.W, tk.E, tk.S), padx=10, pady=10)
 
-        ais_type_text = tk.Text(ais_type_frame, width=38, height=22, wrap=tk.WORD)
+        ais_type_text = tk.Text(ais_type_frame, width=45, height=30, wrap=tk.WORD, font=('Arial', 10))
         ais_type_text.pack(fill=tk.BOTH, expand=True)
 
         ais_type_text.insert(tk.END, """\
@@ -191,26 +208,31 @@ For most ship position reports, use type 1, 2, 3, 18, or 19.
     def setup_transmission_log_tab(self):
         """Setup the transmission log tab"""
         # ----- Tab 2: Transmission Log -----
-        log_frame = ttk.Frame(self.notebook, padding=10)
+        log_frame = ttk.Frame(self.notebook, padding=20)
         self.notebook.add(log_frame, text="Transmission Log")
 
-        # Text area for logs
-        self.log_text = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, width=80, height=20)
-        self.log_text.pack(fill=tk.BOTH, expand=True)
+        # Text area for logs with better font and sizing
+        self.log_text = scrolledtext.ScrolledText(log_frame, wrap=tk.WORD, width=120, height=35, font=('Consolas', 11))
+        self.log_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         self.log_text.configure(state='disabled')
 
     def setup_ship_simulation_tab(self):
         """Setup the ship simulation tab"""
         # ----- Tab 3: Ship Simulation -----
-        sim_frame = ttk.Frame(self.notebook, padding=10)
+        sim_frame = ttk.Frame(self.notebook, padding=20)
         self.notebook.add(sim_frame, text="Ship Simulation")
 
-        # Left side - Ship list
-        ship_list_frame = ttk.LabelFrame(sim_frame, text="Ships", padding=10)
-        ship_list_frame.grid(row=0, column=0, sticky=(tk.N, tk.W, tk.E, tk.S), padx=5, pady=5)
+        # Configure grid weights for better scaling
+        sim_frame.columnconfigure(0, weight=2)  # Ship list gets more space
+        sim_frame.columnconfigure(1, weight=3)  # Simulation controls get even more space
+        sim_frame.rowconfigure(0, weight=1)
 
-        # Ship selection listbox
-        self.ship_listbox = tk.Listbox(ship_list_frame, height=15, selectmode=tk.MULTIPLE)
+        # Left side - Ship list (wider and taller)
+        ship_list_frame = ttk.LabelFrame(sim_frame, text="Ships", padding=15)
+        ship_list_frame.grid(row=0, column=0, sticky=(tk.N, tk.W, tk.E, tk.S), padx=10, pady=10)
+
+        # Ship selection listbox with better sizing
+        self.ship_listbox = tk.Listbox(ship_list_frame, height=25, selectmode=tk.MULTIPLE, font=('Arial', 12))
         self.ship_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         # Add scroll bar
@@ -218,54 +240,60 @@ For most ship position reports, use type 1, 2, 3, 18, or 19.
         ship_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.ship_listbox.configure(yscrollcommand=ship_scrollbar.set)
 
-        # Ship control buttons
+        # Ship control buttons with better styling
         ship_control_frame = ttk.Frame(ship_list_frame)
-        ship_control_frame.pack(fill=tk.X, pady=10)
+        ship_control_frame.pack(fill=tk.X, pady=15)
 
-        # Add/Edit/Delete buttons
+        # Add/Edit/Delete buttons with larger size
         add_ship_btn = ttk.Button(ship_control_frame, text="Add Ship", command=self.add_new_ship)
-        add_ship_btn.pack(side=tk.LEFT, padx=5)
+        add_ship_btn.pack(side=tk.LEFT, padx=8, pady=5, ipadx=10, ipady=5)
 
         edit_ship_btn = ttk.Button(ship_control_frame, text="Edit Ship", command=self.edit_selected_ship)
-        edit_ship_btn.pack(side=tk.LEFT, padx=5)
+        edit_ship_btn.pack(side=tk.LEFT, padx=8, pady=5, ipadx=10, ipady=5)
 
         delete_ship_btn = ttk.Button(ship_control_frame, text="Delete Ship", command=self.delete_selected_ships)
-        delete_ship_btn.pack(side=tk.LEFT, padx=5)
+        delete_ship_btn.pack(side=tk.LEFT, padx=8, pady=5, ipadx=10, ipady=5)
 
-        # Right side - Simulation controls
-        sim_control_frame = ttk.LabelFrame(sim_frame, text="Simulation Controls", padding=10)
-        sim_control_frame.grid(row=0, column=1, sticky=(tk.N, tk.W, tk.E, tk.S), padx=5, pady=5)
+        # Right side - Simulation controls (larger and better organized)
+        sim_control_frame = ttk.LabelFrame(sim_frame, text="Simulation Controls", padding=20)
+        sim_control_frame.grid(row=0, column=1, sticky=(tk.N, tk.W, tk.E, tk.S), padx=10, pady=10)
 
-        # Channel selection
-        ttk.Label(sim_control_frame, text="AIS Channel:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        # Configure internal grid
+        sim_control_frame.columnconfigure(1, weight=1)
+
+        # Channel selection with larger fonts
+        ttk.Label(sim_control_frame, text="AIS Channel:", font=('Arial', 12)).grid(row=0, column=0, sticky=tk.W, pady=8)
         self.sim_channel_var = tk.StringVar(value="0")
-        ttk.Combobox(sim_control_frame, textvariable=self.sim_channel_var, 
-                     values=["0", "1"]).grid(row=0, column=1, sticky=(tk.W, tk.E), pady=5)
+        channel_combo = ttk.Combobox(sim_control_frame, textvariable=self.sim_channel_var, 
+                     values=["0", "1"], font=('Arial', 12))
+        channel_combo.grid(row=0, column=1, sticky=(tk.W, tk.E), pady=8, padx=(10, 0))
 
         # Interval setting
-        ttk.Label(sim_control_frame, text="Interval (seconds):").grid(row=1, column=0, sticky=tk.W, pady=5)
+        ttk.Label(sim_control_frame, text="Interval (seconds):", font=('Arial', 12)).grid(row=1, column=0, sticky=tk.W, pady=8)
         self.sim_interval_var = tk.StringVar(value="10")
-        ttk.Entry(sim_control_frame, textvariable=self.sim_interval_var, width=5).grid(row=1, column=1, sticky=(tk.W, tk.E))
+        interval_entry = ttk.Entry(sim_control_frame, textvariable=self.sim_interval_var, font=('Arial', 12))
+        interval_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=8, padx=(10, 0))
 
-        # Start/Stop buttons
+        # Start/Stop buttons with better styling
         self.start_sim_btn = ttk.Button(sim_control_frame, text="Start Simulation", command=self.start_ship_simulation)
-        self.start_sim_btn.grid(row=2, column=0, columnspan=2, pady=10)
+        self.start_sim_btn.grid(row=2, column=0, columnspan=2, pady=15, ipadx=20, ipady=8, sticky=(tk.W, tk.E))
 
         self.stop_sim_btn = ttk.Button(sim_control_frame, text="Stop Simulation", command=self.stop_ship_simulation)
-        self.stop_sim_btn.grid(row=3, column=0, columnspan=2, pady=10)
+        self.stop_sim_btn.grid(row=3, column=0, columnspan=2, pady=10, ipadx=20, ipady=8, sticky=(tk.W, tk.E))
         self.stop_sim_btn.config(state=tk.DISABLED)
 
-        # Simulation log
-        sim_log_frame = ttk.LabelFrame(sim_control_frame, text="Simulation Log", padding=10)
-        sim_log_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=10)
+        # Simulation log with better sizing
+        sim_log_frame = ttk.LabelFrame(sim_control_frame, text="Simulation Log", padding=15)
+        sim_log_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=15)
 
-        self.sim_log_text = scrolledtext.ScrolledText(sim_log_frame, wrap=tk.WORD, width=40, height=10)
+        self.sim_log_text = scrolledtext.ScrolledText(sim_log_frame, wrap=tk.WORD, width=50, height=15, font=('Consolas', 11))
         self.sim_log_text.pack(fill=tk.BOTH, expand=True)
         self.sim_log_text.configure(state='disabled')
 
-        # Status indicator
+        # Status indicator with larger font
         self.sim_status_var = tk.StringVar(value="Ready")
-        ttk.Label(sim_control_frame, textvariable=self.sim_status_var).grid(row=5, column=0, columnspan=2, pady=5)
+        status_label = ttk.Label(sim_control_frame, textvariable=self.sim_status_var, font=('Arial', 12, 'bold'))
+        status_label.grid(row=5, column=0, columnspan=2, pady=10)
 
         # Update ship listbox initially
         self.update_ship_listbox()
@@ -294,14 +322,31 @@ For most ship position reports, use type 1, 2, 3, 18, or 19.
         pass
 
     def center_window(self):
-        """Center the window on screen"""
-        window_width = 1000
-        window_height = 750
-        screen_width = self.root.winfo_screenwidth()
-        screen_height = self.root.winfo_screenheight()
-        center_x = int((screen_width - window_width) / 2)
-        center_y = int((screen_height - window_height) / 2)
-        self.root.geometry(f"{window_width}x{window_height}+{center_x}+{center_y}")
+        """Launch the window in fullscreen mode"""
+        # Set the window to fullscreen
+        self.root.attributes('-fullscreen', True)
+        
+        # Add a title bar with exit button since we're in fullscreen
+        title_frame = ttk.Frame(self.root, style='Title.TFrame')
+        title_frame.pack(side=tk.TOP, fill=tk.X)
+        
+        # Application title
+        ttk.Label(title_frame, text="AIS NMEA Generator & Transmitter - NATO Navy Simulation", 
+                 font=('Arial', 14, 'bold'), foreground='white', background='#2C3E50').pack(side=tk.LEFT, padx=20, pady=8)
+        
+        # Exit fullscreen button
+        ttk.Button(title_frame, text="Exit Fullscreen (or press ESC)", 
+                  command=lambda: self.root.attributes('-fullscreen', False)).pack(side=tk.RIGHT, padx=20, pady=8)
+        
+        # Configure title frame style
+        style = ttk.Style()
+        style.configure('Title.TFrame', background='#2C3E50')
+        
+        # Allow Escape key to exit fullscreen
+        self.root.bind('<Escape>', lambda e: self.root.attributes('-fullscreen', False))
+        
+        # Also allow F11 to toggle fullscreen
+        self.root.bind('<F11>', lambda e: self.root.attributes('-fullscreen', not self.root.attributes('-fullscreen')))
 
     def generate(self):
         """Generate AIS message from GUI input fields"""
