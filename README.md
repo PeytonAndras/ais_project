@@ -855,66 +855,19 @@ def move_towards_waypoint(ship, waypoint, elapsed_time):
 ```
 
 ---
-
-## 🤝 Contributing
-
-### Development Setup
-```bash
-# Clone repository
-git clone https://github.com/your-org/nato_navy.git
-cd nato_navy
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # Linux/macOS
-# or
-venv\Scripts\activate     # Windows
-
-# Install development dependencies
-pip install -r requirements-dev.txt
-
-# Install pre-commit hooks
-pre-commit install
-```
-
 ### Code Style
 - **PEP 8**: Follow Python style guidelines
 - **Type Hints**: Use type annotations where appropriate
 - **Docstrings**: Document all public functions and classes
 - **Testing**: Write tests for new functionality
 
-### Submission Process
-1. **Fork Repository**: Create personal fork
-2. **Feature Branch**: Create branch for changes
-3. **Documentation**: Update relevant documentation
-4. **Testing**: Ensure all tests pass
-5. **Pull Request**: Submit with clear description
-
 ---
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ### Third-Party Licenses
 - **tkintermapview**: MIT License
 - **Pillow**: HPND License
 - **SoapySDR**: Boost Software License
 
----
-
-## 📞 Support
-
-### Documentation
-- **User Guide**: This README
-- **Custom Maps**: [CUSTOM_MAP_GUIDE.md](CUSTOM_MAP_GUIDE.md)
-- **API Documentation**: `/docs/api/`
-- **Examples**: `/examples/` directory
-
-### Community
-- **Issues**: [GitHub Issues](https://github.com/your-org/nato_navy/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-org/nato_navy/discussions)
-- **Wiki**: [Project Wiki](https://github.com/your-org/nato_navy/wiki)
 
 ### Academic Support
 - **Institution**: Louisiana State University
@@ -924,46 +877,12 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## 🎯 Roadmap
-
-### Version 2.0 (Planned)
-- **Enhanced AIS Messages**: Support for Type 4, 5, and other message types
-- **Multi-Frequency**: Simultaneous transmission on multiple channels
-- **Weather Integration**: Dynamic weather effects on ship movement
-- **Collision Avoidance**: Realistic ship behavior near other vessels
-
-### Version 2.1 (Future)
-- **3D Visualization**: Three-dimensional ship representation
-- **Tidal Effects**: Current and tide influence on ship movement
-- **Harbor Simulation**: Detailed port and harbor operations
-- **Multi-User**: Collaborative simulation environments
-
-### Long-Term Goals
-- **Machine Learning**: AI-driven ship behavior patterns
-- **Cloud Integration**: Web-based simulation platform
-- **VR/AR Support**: Immersive visualization capabilities
-- **Real-World Integration**: Interface with actual AIS networks
-
----
-
-## 🏆 Acknowledgments
-
-### Project Contributors
-- **Lead Developer**: Peyton Andras, Louisiana State University
-- **Maritime Expertise**: [Maritime Industry Partners]
-- **Cybersecurity Research**: [Academic Collaborators]
-- **Testing and Validation**: [Student Research Teams]
 
 ### Open Source Libraries
 - **tkintermapview**: Interactive mapping capabilities
 - **Pillow**: Image processing and manipulation
 - **SoapySDR**: Software Defined Radio abstraction
 - **tkinter**: Cross-platform GUI framework
-
-### Research Support
-- **Louisiana State University**: Academic institutional support
-- **Maritime Industry**: Real-world validation and requirements
-- **Cybersecurity Community**: Security testing and feedback
 
 ---
 
