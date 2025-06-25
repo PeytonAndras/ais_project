@@ -1,0 +1,21 @@
+# SIREN AIS Transmitter Requirements
+
+# Core dependencies
+numpy>=1.21.0
+SoapySDR>=0.8.0
+
+# AIS protocol support (now using pyais)
+pyais>=2.6.0
+
+# Optional dependencies for enhanced functionality
+scipy>=1.7.0
+matplotlib>=3.5.0
+bitarray>=2.3.0
+crcmod>=1.7
+
+# GUI support
+tkinter  # Usually included with Python
+
+# Development and testing
+pytest>=6.0.0
+pytest-cov>=2.0.0

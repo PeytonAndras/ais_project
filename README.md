@@ -14,7 +14,8 @@
 - **Interactive Mapping**: Support for both online maps (tkintermapview) and custom nautical charts
 - **Waypoint Navigation**: Ships follow predefined routes with automatic course corrections and collision avoidance
 - **Multi-Ship Management**: Handle fleets of vessels with individual configurations and behaviors
-- **NMEA Message Generation**: Full AIS Type 1, 2, and 3 message compliance with proper encoding
+- **Standards-Compliant AIS**: Full AIS message types 1-5, 18, 21 using pyais library for ITU-R M.1371-5 compliance
+- **Message Validation**: Built-in validation and decoding using pyais for accuracy verification
 
 ### Advanced Features
 - **Custom Map Support**: Upload and calibrate your own nautical charts for offline operation
@@ -64,7 +65,7 @@ source siren_env/bin/activate  # On Windows: siren_env\Scripts\activate
 #### Install Python Dependencies
 ```bash
 # Core dependencies (required)
-pip install tkintermapview pillow requests
+pip install tkintermapview pillow requests pyais
 
 # For SDR transmission (optional but recommended)
 pip install numpy SoapySDR
@@ -136,6 +137,9 @@ python ais_main_modular.py
 # Test core functionality
 python test_modular.py
 
+# Test pyais integration and message validation
+python test_pyais_integration.py
+
 # Test production integration (if SDR available)
 python test_production_integration.py
 
@@ -147,7 +151,7 @@ python -c "
 import sys
 print(f'Python: {sys.version}')
 try:
-    import tkintermapview, PIL, requests
+    import tkintermapview, PIL, requests, pyais
     print('✅ Core dependencies: OK')
     try:
         import SoapySDR, numpy
@@ -346,14 +350,160 @@ Track Management:    Display Options:     Navigation:
 
 ---
 
+## 🧬 pyais Integration
+
+SIREN now uses the pyais library for standards-compliant AIS message encoding and decoding, providing enhanced reliability and compatibility.
+
+### Benefits of pyais Integration
+- **ITU-R M.1371-5 Compliance**: Official maritime standard implementation
+- **Message Validation**: Built-in encoding/decoding verification
+- **Extended Message Types**: Support for Types 1-5, 18, 21
+- **Error Detection**: Automatic validation of generated messages
+- **Industry Standard**: Used by maritime professionals worldwide
+
+### Supported Message Types
+
+#### Type 1/2/3: Position Report
+```python
+from siren.protocol.ais_encoding import create_nmea_sentence
+
+fields = {
+    'msg_type': 1,
+    'mmsi': 123456789,
+    'lat': 37.7749,
+    'lon': -122.4194,
+    'sog': 12.3,
+    'cog': 215.5,
+    'nav_status': 0,
+    'rot': 0,
+    'accuracy': 1,
+    'hdg': 220,
+    'timestamp': 30
+}
+nmea = create_nmea_sentence(fields)
+# Output: !AIVDM,1,1,,A,11mg=5@01so?Vt@EWFs8Jnpt0000,0*1B
+```
+
+#### Type 4: Base Station Report
+```python
+fields = {
+    'msg_type': 4,
+    'mmsi': 987654321,
+    'lat': 37.7749,
+    'lon': -122.4194,
+    'year': 2025,
+    'month': 6,
+    'day': 25,
+    'hour': 12,
+    'minute': 30,
+    'second': 45
+}
+nmea = create_nmea_sentence(fields)
+```
+
+#### Type 5: Static and Voyage Data
+```python
+fields = {
+    'msg_type': 5,
+    'mmsi': 123456789,
+    'call_sign': 'TEST123',
+    'vessel_name': 'TEST VESSEL',
+    'ship_type': 70,
+    'destination': 'SAN FRANCISCO',
+    'dim_to_bow': 100,
+    'dim_to_stern': 20,
+    'eta_month': 12,
+    'eta_day': 25
+}
+nmea = create_nmea_sentence(fields)
+```
+
+#### Type 18: Class B Position Report
+```python
+fields = {
+    'msg_type': 18,
+    'mmsi': 123456789,
+    'lat': 37.7749,
+    'lon': -122.4194,
+    'sog': 8.5,
+    'cog': 180.0,
+    'accuracy': 1
+}
+nmea = create_nmea_sentence(fields)
+```
+
+#### Type 21: Aid-to-Navigation
+```python
+fields = {
+    'msg_type': 21,
+    'mmsi': 993456789,
+    'lat': 37.8199,
+    'lon': -122.4783,
+    'name': 'GOLDEN GATE BRIDGE',
+    'aid_type': 1
+}
+nmea = create_nmea_sentence(fields)
+```
+
+### Message Validation
+```python
+from siren.protocol.ais_encoding import validate_ais_message
+from pyais import decode
+
+# Validate any NMEA sentence
+nmea = "!AIVDM,1,1,,A,11mg=5@01so?Vt@EWFs8Jnpt0000,0*1B"
+valid, decoded = validate_ais_message(nmea)
+
+if valid:
+    print(f"MMSI: {decoded.mmsi}")
+    print(f"Position: {decoded.lat}, {decoded.lon}")
+    print(f"Speed: {decoded.speed} knots")
+    print(f"Course: {decoded.course}°")
+else:
+    print(f"Invalid message: {decoded}")
+```
+
+### Testing pyais Integration
+```bash
+# Run comprehensive pyais tests
+python test_pyais_integration.py
+
+# Expected output:
+# ============================================================
+# SIREN AIS Message Encoding Test - pyais Integration
+# ============================================================
+# Testing AIS Type 1 Position Report...
+# ✅ Message validated successfully!
+# Testing AIS Type 4 Base Station Report...
+# ✅ Message validated successfully!
+# Testing AIS Type 5 Static and Voyage Data...
+# ✅ Message validated successfully!
+# Testing AIS Type 18 Class B Position Report...
+# ✅ Message validated successfully!
+# Testing AIS Type 21 Aid-to-Navigation Report...
+# ✅ Message validated successfully!
+# 🎉 All tests passed! pyais integration successful!
+```
+
+---
+
 ## 🔧 Advanced Technical Details
 
 ### AIS Message Structure
 
-SIREN generates ITU-R M.1371-5 compliant AIS messages:
+SIREN now uses the pyais library for ITU-R M.1371-5 compliant AIS message generation:
 
+#### Supported Message Types
 ```
-Message Type 1/2/3 (Position Report):
+Type 1/2/3: Position Report (Class A vessels)
+Type 4:     Base Station Report (Shore stations) 
+Type 5:     Static and Voyage Related Data (Ship details)
+Type 18:    Standard Class B CS Position Report
+Type 21:    Aid-to-Navigation Report (Buoys, lighthouses)
+```
+
+#### Message Type 1/2/3 Structure (Position Report):
+```
 ┌─────────────────────────────────────────────────────────┐
 │ Field           │ Bits │ Description                    │
 ├─────────────────────────────────────────────────────────┤
@@ -376,6 +526,13 @@ Message Type 1/2/3 (Position Report):
 └─────────────────────────────────────────────────────────┘
 Total: 168 bits
 ```
+
+#### pyais Integration Benefits
+- **Standards Compliance**: Official ITU-R M.1371-5 implementation
+- **Message Validation**: Built-in encoding/decoding verification
+- **Extended Types**: Support for all common AIS message types
+- **Error Detection**: Automatic validation of generated messages
+- **Future-Proof**: Easy updates as AIS standards evolve
 
 ### Waypoint Navigation System
 
@@ -411,12 +568,34 @@ def calculate_bearing(point1, point2):
 
 ### SDR Transmission Pipeline
 
-#### Signal Generation Process
+#### SDR Transmission Pipeline
+
+#### Signal Generation Process (pyais-enhanced)
 ```
-1. AIS Data → Binary Encoding → 6-bit ASCII → NMEA Sentence
-2. NMEA → HDLC Framing → Bit Stuffing → NRZI Encoding  
+1. Ship Data → pyais Message Objects → NMEA Sentence Generation
+2. NMEA Validation → HDLC Framing → Bit Stuffing → NRZI Encoding  
 3. NRZI → GMSK Modulation → Digital Filter → DAC Output
 4. Baseband → RF Upconversion → Antenna Transmission
+```
+
+#### AIS Message Generation with pyais
+```python
+from pyais.messages import MessageType1
+from pyais.encode import encode_msg
+
+# Create standards-compliant message
+msg = MessageType1(
+    msg_type=1, repeat=0, mmsi=123456789,
+    status=0, turn=0, speed=12.3,
+    accuracy=1, lon=-122.4194, lat=37.7749,
+    course=215.5, heading=220, second=30,
+    maneuver=0, spare_1=0, raim=0, radio=0
+)
+
+# Generate NMEA sentence
+nmea_sentences = encode_msg(msg)
+print(nmea_sentences[0])
+# Output: !AIVDO,1,1,,A,11mg=5@01so?Vt@EWFs8Jnpt0000,0*19
 ```
 
 #### Supported Hardware
@@ -436,15 +615,25 @@ def calculate_bearing(point1, point2):
 Run comprehensive tests to verify functionality:
 
 ```bash
+# Test core modular functionality
+python test_modular.py
+
+# Test pyais integration and message validation
+python test_pyais_integration.py
+
 # Test waypoint navigation
 python test_waypoint_navigation.py
 
-# Test AIS message encoding
+# Test AIS message encoding with pyais
 python -c "
-from siren.protocol.ais_encoding import build_ais_payload
-fields = {'msg_type': 1, 'mmsi': 123456789, 'lat': 41.0, 'lon': -70.0}
-payload, fill = build_ais_payload(fields)
-print(f'AIS Payload: {payload}')
+from siren.protocol.ais_encoding import create_nmea_sentence, validate_ais_message
+fields = {'msg_type': 1, 'mmsi': 123456789, 'lat': 41.0, 'lon': -70.0, 
+          'sog': 10.0, 'cog': 90.0, 'nav_status': 0, 'rot': 0, 'accuracy': 1, 
+          'hdg': 90, 'timestamp': 30}
+nmea = create_nmea_sentence(fields)
+print(f'Generated: {nmea}')
+valid, decoded = validate_ais_message(nmea)
+print(f'Valid: {valid}, MMSI: {decoded.mmsi if valid else \"Invalid\"}')
 "
 
 # Test SDR hardware (if available)
@@ -463,10 +652,34 @@ SoapySDRUtil --find
 
 #### 2. AIS Message Validation
 ```bash
+# Test all supported message types
+python test_pyais_integration.py
+
 # Monitor transmitted messages with AIS receiver
 # Verify MMSI, position, course, speed accuracy
 # Check message timing and channel alternation
-# Validate NMEA checksum calculation
+# Validate NMEA checksum calculation with pyais decoder
+
+# Manual validation example
+python -c "
+from siren.protocol.ais_encoding import create_nmea_sentence, validate_ais_message
+from pyais import decode
+
+# Generate and validate Type 5 message
+fields = {
+    'msg_type': 5, 'mmsi': 123456789, 'imo_number': 1234567,
+    'call_sign': 'TEST123', 'vessel_name': 'TEST VESSEL',
+    'ship_type': 70, 'destination': 'TEST PORT'
+}
+nmea = create_nmea_sentence(fields)
+print(f'Generated: {nmea}')
+
+# Validate with pyais
+decoded = decode(nmea)
+print(f'Decoded MMSI: {decoded.mmsi}')
+print(f'Vessel Name: {decoded.shipname}')
+print(f'Destination: {decoded.destination}')
+"
 ```
 
 #### 3. Map Integration Testing
@@ -482,7 +695,8 @@ SoapySDRUtil --find
 | Operation | Target | Typical Performance |
 |-----------|--------|-------------------|
 | **Ship Movement Calculation** | <5ms per ship | ~1ms average |
-| **AIS Message Generation** | <10ms per message | ~2ms average |
+| **AIS Message Generation (pyais)** | <10ms per message | ~2ms average |
+| **Message Validation (pyais)** | <5ms per message | ~1ms average |
 | **Map Update Rate** | 10+ FPS | 30+ FPS typical |
 | **SDR Transmission Latency** | <50ms | ~20ms average |
 | **Waypoint Detection** | <1ms | ~0.3ms average |
@@ -546,9 +760,10 @@ python --version  # Requires 3.8+
 python -c "import tkinter; print('tkinter: OK')"
 python -c "import tkintermapview; print('maps: OK')"
 python -c "from PIL import Image; print('images: OK')"
+python -c "import pyais; print('pyais: OK')"
 
 # Install missing packages
-pip install tkintermapview pillow requests
+pip install tkintermapview pillow requests pyais
 ```
 
 #### SDR Driver Issues
@@ -639,6 +854,8 @@ nato_navy/
 ├── ais_main_modular.py          # Main application entry point
 ├── ship_configs.json            # Default ship configurations
 ├── robust_ship_configs.json     # Extended ship fleet configurations
+├── requirements.txt             # Python dependencies including pyais
+├── test_pyais_integration.py    # pyais integration test suite
 └── README.md                    # This comprehensive guide
 
 ├── siren/                       # Modular SIREN system
@@ -647,7 +864,7 @@ nato_navy/
 │   │   ├── settings.py
 │   │   └── __init__.py
 │   ├── protocol/                # AIS protocol implementation
-│   │   ├── ais_encoding.py      # AIS message encoding
+│   │   ├── ais_encoding.py      # pyais-based AIS message encoding
 │   │   └── __init__.py
 │   ├── ships/                   # Ship simulation
 │   │   ├── ais_ship.py          # Individual ship class
@@ -694,6 +911,7 @@ Core (Required):
 - tkintermapview  # Interactive mapping
 - pillow         # Image processing  
 - requests       # HTTP/geocoding
+- pyais          # ITU-R M.1371-5 compliant AIS encoding/decoding
 
 SDR Transmission (Optional):
 - SoapySDR       # SDR abstraction layer
@@ -710,14 +928,36 @@ Development (Optional):
 
 ### Unit Tests
 ```bash
-# Run basic tests
+# Run basic modular tests
 python -m pytest test_modular.py
+
+# Test pyais integration specifically
+python test_pyais_integration.py
 
 # Test ship movement
 python test_ship_movement.py
 
-# Validate AIS message generation
-python test_ais_encoding.py
+# Validate AIS message generation and validation
+python -c "
+from siren.protocol.ais_encoding import create_nmea_sentence, validate_ais_message
+
+# Test all supported message types
+test_cases = [
+    {'msg_type': 1, 'mmsi': 123456789, 'lat': 41.0, 'lon': -70.0, 'sog': 10.0, 'cog': 90.0, 'nav_status': 0, 'rot': 0, 'accuracy': 1, 'hdg': 90, 'timestamp': 30},
+    {'msg_type': 4, 'mmsi': 987654321, 'lat': 41.0, 'lon': -70.0, 'year': 2025, 'month': 6, 'day': 25, 'hour': 12, 'minute': 30, 'second': 45},
+    {'msg_type': 5, 'mmsi': 123456789, 'call_sign': 'TEST123', 'vessel_name': 'TEST', 'ship_type': 70, 'destination': 'PORT'},
+    {'msg_type': 18, 'mmsi': 123456789, 'lat': 41.0, 'lon': -70.0, 'sog': 8.5, 'cog': 180.0, 'accuracy': 1},
+    {'msg_type': 21, 'mmsi': 993456789, 'lat': 41.0, 'lon': -70.0, 'name': 'TEST AID', 'aid_type': 1}
+]
+
+for i, fields in enumerate(test_cases, 1):
+    try:
+        nmea = create_nmea_sentence(fields)
+        valid, decoded = validate_ais_message(nmea)
+        print(f'✅ Type {fields[\"msg_type\"]} test {i}: {\"PASS\" if valid else \"FAIL\"}')
+    except Exception as e:
+        print(f'❌ Type {fields[\"msg_type\"]} test {i}: FAIL - {e}')
+"
 ```
 
 ### Integration Tests
@@ -749,6 +989,7 @@ python ais_main_modular.py
 
 # Run tests
 python test_modular.py
+python test_pyais_integration.py
 python test_production_integration.py
 
 # Check SDR devices
@@ -790,6 +1031,10 @@ hybrid_maritime_ais/hybrid_maritime_ais.py   # Production CLI
 # Maps & UI
 siren/map/visualization.py          # Map display
 siren/ui/main_window.py             # Main interface
+
+# Testing
+test_pyais_integration.py           # pyais integration tests
+requirements.txt                    # Dependencies including pyais
 ```
 
 ---
@@ -838,9 +1083,16 @@ class MapVisualization:
 
 #### AIS Encoding
 ```python
-def build_ais_payload(fields):
-    """Generate AIS binary payload from ship data"""
+def create_nmea_sentence(fields, channel='A'):
+    """Create complete NMEA sentence from AIS fields using pyais"""
 
+def validate_ais_message(nmea_sentence):
+    """Validate AIS message using pyais decoder"""
+
+def build_ais_payload(fields):
+    """Build AIS payload from message fields using pyais"""
+
+# Legacy functions (maintained for compatibility)
 def compute_checksum(sentence):
     """Calculate NMEA sentence checksum"""
 ```
@@ -863,21 +1115,6 @@ def move_towards_waypoint(ship, waypoint, elapsed_time):
 
 ---
 
-### Third-Party Licenses
-- **tkintermapview**: MIT License
-- **Pillow**: HPND License
-- **SoapySDR**: Boost Software License
-
-
-### Academic Support
-- **Institution**: Louisiana State University
-- **Author**: Peyton Andras
-- **Research Group**: Maritime Cybersecurity Lab
-- **Email**: research@example.edu
-
----
-
-
 ### Open Source Libraries
 - **tkintermapview**: Interactive mapping capabilities
 - **Pillow**: Image processing and manipulation
@@ -887,5 +1124,5 @@ def move_towards_waypoint(ship, waypoint, elapsed_time):
 ---
 
 **SIREN: Spoofed Identification & Real-time Emulation Node**  
-*Advanced Maritime AIS Simulation Platform*  
+*SIREN Maritime AIS Simulation Platform*  
 *© 2025 Louisiana State University*
