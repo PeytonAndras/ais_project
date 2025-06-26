@@ -235,17 +235,21 @@ class MapVisualization:
         ttk.Button(control_panel, text="Center on Ships", command=self.center_map_on_ships).grid(
             row=5, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
 
+        # Refresh ship markers button
+        ttk.Button(control_panel, text="Refresh Ship Markers", command=self.refresh_ship_markers).grid(
+            row=6, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+
         # Clear tracks button
         ttk.Button(control_panel, text="Clear All Tracks", command=self.clear_all_tracks).grid(
-            row=6, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+            row=7, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
 
         # Clear waypoints button
         ttk.Button(control_panel, text="Clear Waypoints", command=self.clear_all_waypoints).grid(
-            row=7, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
+            row=8, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
 
         # Local cache management
         cache_frame = ttk.LabelFrame(control_panel, text="Map Cache", padding=5)
-        cache_frame.grid(row=8, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+        cache_frame.grid(row=9, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
 
         # Cache info display
         self.cache_info_var = tk.StringVar(value="Checking cache...")
@@ -443,6 +447,22 @@ class MapVisualization:
         else:
             self.map_widget.set_zoom(12)  # Default zoom if ships are close together
 
+    def refresh_ship_markers(self):
+        """Refresh ship markers on the map to ensure they are clickable"""
+        print("DEBUG: Refreshing ship markers")
+        try:
+            # Force update the map with current ship positions
+            self.update_map(force=True)
+            
+            # Add a small delay then center the map to ensure markers are properly positioned
+            if hasattr(self, 'map_widget') and self.map_widget:
+                # Use the tkinter after method to schedule centering after current operations complete
+                self.map_widget.after(100, self.center_map_on_ships)
+            
+            print("DEBUG: Ship markers refreshed successfully")
+        except Exception as e:
+            print(f"DEBUG: Error refreshing ship markers: {e}")
+
     def clear_all_tracks(self):
         """Clear all ship tracks from the map"""
         if not self.map_available or not self.map_widget:
@@ -526,8 +546,10 @@ class MapVisualization:
         # Get ships to display based on selection
         if selected_ship_indices is not None:
             ships = ship_manager.get_selected_ships(selected_ship_indices)
+            print(f"DEBUG: Showing only selected ships on map: {len(ships)} ships")
         else:
             ships = ship_manager.get_ships()
+            print(f"DEBUG: Showing all ships on map: {len(ships)} ships")
         
         # Update based on map mode
         if self.map_mode == 'online' and self.map_available and self.map_widget:
@@ -578,19 +600,21 @@ class MapVisualization:
                     # Update existing marker position
                     try:
                         self.ship_markers[mmsi].position = current_position
-                        # Update marker text
+                        # Update marker text with simulation status
                         if hasattr(self.ship_markers[mmsi], 'text'):
-                            self.ship_markers[mmsi].text = f"{ship.name}\n{ship.speed}kn"
+                            marker_text = f"[LIVE] {ship.name}\n{ship.speed}kn" if selected_ship_indices else f"{ship.name}\n{ship.speed}kn"
+                            self.ship_markers[mmsi].text = marker_text
                     except Exception as e:
                         print(f"Error updating marker: {e}")
                 else:
-                    # Create new marker
-                    marker_text = f"{ship.name}\n{ship.speed}kn"
+                    # Create new marker with simulation status
+                    marker_text = f"[LIVE] {ship.name}\n{ship.speed}kn" if selected_ship_indices else f"{ship.name}\n{ship.speed}kn"
                     try:
+                        print(f"DEBUG: Creating new marker for {ship.name} at {ship.lat}, {ship.lon}")
                         marker = self.map_widget.set_marker(
                             ship.lat, ship.lon,
                             text=marker_text,
-                            icon=self.ship_icon
+                            icon=self.ship_icon_selected if selected_ship_indices else self.ship_icon
                         )
                         
                         # Store ship reference in marker for click handler
@@ -599,8 +623,11 @@ class MapVisualization:
                         # Add click event to show ship details
                         marker.command = self._make_click_handler(ship, marker)
                         self.ship_markers[mmsi] = marker
+                        print(f"DEBUG: Successfully created clickable marker for {ship.name}")
                     except Exception as e:
-                        print(f"Error creating marker: {e}")
+                        print(f"ERROR: Failed to create marker for {ship.name}: {e}")
+                        import traceback
+                        traceback.print_exc()
                 
                 # Update ship track polyline if enabled
                 if self.show_tracks_var and self.show_tracks_var.get() and len(self.ship_tracks[mmsi]) > 1:
@@ -637,6 +664,7 @@ class MapVisualization:
             for mmsi in all_mmsis - displayed_mmsis:
                 if mmsi in self.ship_markers:
                     try:
+                        print(f"DEBUG: Hiding marker for non-selected ship MMSI {mmsi}")
                         self.map_widget.delete(self.ship_markers[mmsi])
                     except Exception as e:
                         print(f"Error hiding marker for MMSI {mmsi}: {e}")
@@ -681,8 +709,9 @@ class MapVisualization:
     def _make_click_handler(self, ship_obj, marker_obj):
         """Create a click handler for ship markers"""
         def on_marker_click(marker=None):
-            print(f"DEBUG: Ship clicked - {ship_obj.name} (MMSI: {ship_obj.mmsi})")
+            print(f"DEBUG: Ship marker clicked - {ship_obj.name} (MMSI: {ship_obj.mmsi})")
             if not self.ship_info_text:
+                print("DEBUG: No ship_info_text widget available")
                 return
                 
             # Update ship info display

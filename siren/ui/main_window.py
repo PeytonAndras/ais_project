@@ -48,6 +48,9 @@ class AISMainWindow:
         
         self.notebook = ttk.Notebook(self.main_frame)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Bind tab selection change event
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
 
         # Create tabs
         self.setup_ship_simulation_tab()
@@ -759,3 +762,38 @@ class AISMainWindow:
         
         # Restore the normal status after 3 seconds
         self.root.after(3000, lambda: self.sim_status_var.set(old_status) if hasattr(self, 'sim_status_var') else None)
+
+    def on_tab_changed(self, event):
+        """Handle tab selection changes"""
+        # Get the currently selected tab
+        selected_tab = self.notebook.select()
+        tab_text = self.notebook.tab(selected_tab, "text")
+        
+        # If user switched to Map View, auto-center on ships and refresh markers
+        if tab_text == "Map View" and hasattr(self, 'map_visualization') and self.map_visualization:
+            print("DEBUG: Switched to Map View - centering on ships and refreshing markers")
+            # Use after_idle to ensure the map widget is fully initialized
+            self.root.after_idle(lambda: self.root.after(500, self._auto_center_and_refresh_map))
+
+    def _auto_center_and_refresh_map(self):
+        """Auto-center the map on ships and refresh markers to ensure clickability"""
+        try:
+            if hasattr(self, 'map_visualization') and self.map_visualization:
+                print("DEBUG: Auto-centering map and refreshing markers")
+                
+                # First update the map with current ship positions
+                self.map_visualization.update_map(force=True)
+                
+                # Then center the map on all ships after a short delay
+                self.root.after(200, self._center_map_on_ships)
+        except Exception as e:
+            print(f"DEBUG: Error in auto-center and refresh: {e}")
+
+    def _center_map_on_ships(self):
+        """Center the map on all ships"""
+        try:
+            if hasattr(self, 'map_visualization') and self.map_visualization:
+                print("DEBUG: Centering map on ships")
+                self.map_visualization.center_map_on_ships()
+        except Exception as e:
+            print(f"DEBUG: Error centering map on ships: {e}")
