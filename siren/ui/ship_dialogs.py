@@ -45,6 +45,10 @@ class ShipDialog:
         self.waypoint_map = None
         self.waypoint_marker = [None]
         
+        # Position map variables for Basic Info tab
+        self.position_map = None
+        self.position_marker = None
+        
         # Initialize waypoints from ship if editing
         if self.ship:
             self.waypoints = getattr(self.ship, 'waypoints', [])[:]
@@ -74,6 +78,18 @@ class ShipDialog:
         """Create the basic ship information tab"""
         basic_frame = ttk.Frame(notebook, padding=10)
         notebook.add(basic_frame, text="Basic Info")
+        
+        # Create main left and right frames
+        left_frame = ttk.Frame(basic_frame)
+        left_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 10))
+        
+        right_frame = ttk.Frame(basic_frame)
+        right_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # Configure grid weights
+        basic_frame.columnconfigure(0, weight=2)  # Left frame gets more space
+        basic_frame.columnconfigure(1, weight=1)  # Right frame gets less space
+        basic_frame.rowconfigure(0, weight=1)
         
         # Define fields with default values
         if self.ship:
@@ -109,12 +125,16 @@ class ShipDialog:
                 ("Destination:", "dest", "NEW YORK")
             ]
         
-        # Create input fields
+        # Create parameter frame for input fields
+        param_frame = ttk.LabelFrame(left_frame, text="Vessel Parameters", padding=10)
+        param_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N), pady=(0, 10))
+        
+        # Create input fields in a more compact layout
         for i, (label_text, var_name, default) in enumerate(fields):
-            ttk.Label(basic_frame, text=label_text).grid(row=i, column=0, sticky=tk.W, pady=5)
+            ttk.Label(param_frame, text=label_text).grid(row=i, column=0, sticky=tk.W, pady=2)
             var = tk.StringVar(value=default)
             self.vars_dict[var_name] = var
-            ttk.Entry(basic_frame, textvariable=var).grid(row=i, column=1, sticky=(tk.W, tk.E), pady=5)
+            ttk.Entry(param_frame, textvariable=var, width=15).grid(row=i, column=1, sticky=(tk.W, tk.E), pady=2, padx=(5, 0))
             
             # Flag display next to MMSI
             if var_name == "mmsi":
@@ -122,36 +142,114 @@ class ShipDialog:
                 def update_flag_var(*args):
                     self.flag_var.set(get_flag_from_mmsi(self.vars_dict["mmsi"].get()))
                 self.vars_dict["mmsi"].trace_add("write", lambda *a: update_flag_var())
-                ttk.Label(basic_frame, text="Flag:").grid(row=i, column=2, sticky=tk.W, pady=5)
-                ttk.Label(basic_frame, textvariable=self.flag_var).grid(row=i, column=3, sticky=tk.W, pady=5)
+                ttk.Label(param_frame, text="Flag:").grid(row=i, column=2, sticky=tk.W, pady=2, padx=(10, 0))
+                ttk.Label(param_frame, textvariable=self.flag_var).grid(row=i, column=3, sticky=tk.W, pady=2, padx=(5, 0))
         
-        # Add reference panels
-        self.create_reference_panels(basic_frame, len(fields))
+        # Configure parameter frame weights
+        param_frame.columnconfigure(1, weight=1)
         
-        # Set layout weights
-        basic_frame.columnconfigure(1, weight=1)
+        # Create interactive map frame
+        map_frame = ttk.LabelFrame(left_frame, text="Position Map", padding=10)
+        map_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+        left_frame.rowconfigure(1, weight=1)  # Map gets remaining space
+        
+        # Create map widget if available
+        if MAP_VIEW_AVAILABLE:
+            self.position_map = tkintermapview.TkinterMapView(map_frame, width=500, height=350, corner_radius=0)
+            self.position_map.grid(row=0, column=0, columnspan=4, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+            
+            # Set initial position
+            try:
+                initial_lat = float(self.vars_dict["lat"].get())
+                initial_lon = float(self.vars_dict["lon"].get())
+            except (ValueError, KeyError):
+                initial_lat, initial_lon = 40.7128, -74.0060  # Default to NYC
+            
+            self.position_map.set_position(initial_lat, initial_lon)
+            self.position_map.set_zoom(10)
+            
+            # Position marker
+            self.position_marker = self.position_map.set_marker(initial_lat, initial_lon, text="Position")
+            
+            # Map click handler
+            def on_position_map_click(coords):
+                lat, lon = coords
+                self.vars_dict["lat"].set(f"{lat:.6f}")
+                self.vars_dict["lon"].set(f"{lon:.6f}")
+                if self.position_marker:
+                    self.position_map.delete(self.position_marker)
+                self.position_marker = self.position_map.set_marker(lat, lon, text="Position")
+            
+            self.position_map.add_left_click_map_command(on_position_map_click)
+            
+            # Bind coordinate changes to map updates
+            self.vars_dict["lat"].trace_add("write", self.on_coordinate_change_map)
+            self.vars_dict["lon"].trace_add("write", self.on_coordinate_change_map)
+            
+        else:
+            # Fallback to simple canvas if tkintermapview is not available
+            self.map_canvas = tk.Canvas(map_frame, bg="lightblue", height=300, width=500)
+            self.map_canvas.grid(row=0, column=0, columnspan=4, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 10))
+            
+            ttk.Label(map_frame, text="Map view requires tkintermapview package", 
+                     font=("Segoe UI", 10)).grid(row=0, column=0, columnspan=4)
+        
+        # Preset location buttons
+        preset_frame = ttk.Frame(map_frame)
+        preset_frame.grid(row=1, column=0, columnspan=4, sticky=(tk.W, tk.E))
+        
+        ttk.Label(preset_frame, text="Quick Locations:").grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
+        
+        presets = [
+            ("New York Harbor", 40.7128, -74.0060),
+            ("San Francisco Bay", 37.7749, -122.4194),
+            ("English Channel", 50.2500, 1.0000),
+            ("Mediterranean", 36.0000, 14.0000)
+        ]
+        
+        for i, (name, lat, lon) in enumerate(presets):
+            btn = ttk.Button(preset_frame, text=name, 
+                           command=lambda l=lat, o=lon: self.set_coordinates(l, o))
+            btn.grid(row=0, column=i+1, sticky=tk.W, padx=5)
+        
+        # Center map button
+        def center_position_map():
+            if MAP_VIEW_AVAILABLE and hasattr(self, 'position_map'):
+                try:
+                    lat = float(self.vars_dict["lat"].get())
+                    lon = float(self.vars_dict["lon"].get())
+                    self.position_map.set_position(lat, lon)
+                except Exception:
+                    pass
+        
+        ttk.Button(preset_frame, text="Center Map", command=center_position_map).grid(row=0, column=len(presets)+1, sticky=tk.W, padx=5)
+        
+        # Configure map frame weights
+        map_frame.columnconfigure(0, weight=1)
+        map_frame.rowconfigure(0, weight=1)
+        
+        # Add reference documentation to right frame
+        self.create_reference_documentation(right_frame)
     
-    def create_reference_panels(self, parent, row_offset):
-        """Create ship type and navigation status reference panels"""
-        reference_frame = ttk.Frame(parent)
-        reference_frame.grid(row=row_offset+1, column=0, columnspan=4, sticky=tk.W, padx=0, pady=(10, 0))
+    def create_reference_documentation(self, parent):
+        """Create reference documentation in a notebook widget"""
+        ref_notebook = ttk.Notebook(parent)
+        ref_notebook.pack(fill=tk.BOTH, expand=True)
         
-        # Ship Type Reference Panel
-        ship_type_frame = ttk.LabelFrame(reference_frame, text="Ship Type Codes Reference", padding=10)
-        ship_type_frame.pack(side=tk.LEFT, padx=(0, 10), pady=0, anchor="n")
+        # Ship Type Reference Tab
+        ship_type_frame = ttk.Frame(ref_notebook, padding=10)
+        ref_notebook.add(ship_type_frame, text="Ship Types")
         
-        ttk.Label(ship_type_frame, text="Common AIS Ship Types:", font=("Segoe UI", 11, "bold")).pack(anchor=tk.W, pady=5)
+        ttk.Label(ship_type_frame, text="AIS Ship Type Codes", font=("Segoe UI", 12, "bold")).pack(anchor=tk.W, pady=(0, 10))
         
-        ship_type_scroll = tk.Scrollbar(ship_type_frame)
+        ship_type_text = tk.Text(ship_type_frame, wrap=tk.WORD, height=20, width=30, 
+                                font=("Segoe UI", 10), relief=tk.FLAT, borderwidth=1)
+        ship_type_scroll = ttk.Scrollbar(ship_type_frame, orient="vertical", command=ship_type_text.yview)
+        ship_type_text.configure(yscrollcommand=ship_type_scroll.set)
+        
+        ship_type_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         ship_type_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        ship_type_text = tk.Text(
-            ship_type_frame, wrap=tk.WORD, yscrollcommand=ship_type_scroll.set,
-            height=12, width=18, font=("Segoe UI", 11), relief=tk.FLAT, borderwidth=0,
-        )
-        ship_type_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=False)
-        ship_type_scroll.config(command=ship_type_text.yview)
-        ship_type_text.config(state=tk.NORMAL)
-        ship_type_text.delete(1.0, tk.END)
+        
         ship_type_text.insert(tk.END, """\
 20 - Wing in ground (WIG)
 30 - Fishing
@@ -174,24 +272,24 @@ class ShipDialog:
 80 - Tanker
 90 - Other type
 
-(0 = Not available, 99 = Other)
+Special Values:
+0 - Not available
+99 - Other type not defined above
 """)
         ship_type_text.config(state=tk.DISABLED)
         
-        # Navigation Status Reference Panel
-        nav_status_frame = ttk.LabelFrame(reference_frame, text="Navigation Status Codes Reference", padding=(12, 8))
-        nav_status_frame.pack(side=tk.LEFT, padx=(0, 0), pady=0, anchor="n")
+        # Navigation Status Reference Tab
+        nav_status_frame = ttk.Frame(ref_notebook, padding=10)
+        ref_notebook.add(nav_status_frame, text="Nav Status")
         
-        ttk.Label(nav_status_frame, text="Common AIS Navigation Status Codes:", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(0, 6))
+        ttk.Label(nav_status_frame, text="AIS Navigation Status Codes", font=("Segoe UI", 12, "bold")).pack(anchor=tk.W, pady=(0, 10))
         
-        nav_status_scroll = tk.Scrollbar(nav_status_frame)
-        nav_status_text = tk.Text(
-            nav_status_frame, width=25, height=12, wrap=tk.WORD,
-            font=("Segoe UI", 11), relief=tk.FLAT, borderwidth=0,
-            yscrollcommand=nav_status_scroll.set
-        )
-        nav_status_scroll.config(command=nav_status_text.yview)
-        nav_status_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=False)
+        nav_status_text = tk.Text(nav_status_frame, wrap=tk.WORD, height=20, width=30,
+                                 font=("Segoe UI", 10), relief=tk.FLAT, borderwidth=1)
+        nav_status_scroll = ttk.Scrollbar(nav_status_frame, orient="vertical", command=nav_status_text.yview)
+        nav_status_text.configure(yscrollcommand=nav_status_scroll.set)
+        
+        nav_status_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         nav_status_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         
         nav_status_text.insert(tk.END, """\
@@ -211,8 +309,115 @@ class ShipDialog:
 13 - Reserved
 14 - AIS-SART/MOB-AIS/EPIRB-AIS
 15 - Not defined (default)
+
+Common Status Values:
+- Use 0 for most active vessels
+- Use 1 for anchored vessels
+- Use 5 for docked vessels
+- Use 15 when status is unknown
 """)
         nav_status_text.config(state=tk.DISABLED)
+    
+    def set_coordinates(self, lat, lon):
+        """Set coordinates from preset buttons"""
+        self.vars_dict["lat"].set(str(lat))
+        self.vars_dict["lon"].set(str(lon))
+        
+        # Update map marker if using tkintermapview
+        if MAP_VIEW_AVAILABLE and hasattr(self, 'position_map'):
+            if hasattr(self, 'position_marker') and self.position_marker:
+                self.position_map.delete(self.position_marker)
+            self.position_marker = self.position_map.set_marker(lat, lon, text="Position")
+            self.position_map.set_position(lat, lon)
+        elif hasattr(self, 'map_canvas'):
+            # Fallback for canvas-based map
+            self.update_map_marker(lat, lon)
+    
+    def on_coordinate_change_map(self, *args):
+        """Handle coordinate field changes to update the tkintermapview map"""
+        if not MAP_VIEW_AVAILABLE or not hasattr(self, 'position_map'):
+            return
+            
+        try:
+            lat = float(self.vars_dict["lat"].get())
+            lon = float(self.vars_dict["lon"].get())
+            
+            # Update marker position
+            if hasattr(self, 'position_marker') and self.position_marker:
+                self.position_map.delete(self.position_marker)
+            self.position_marker = self.position_map.set_marker(lat, lon, text="Position")
+            
+        except ValueError:
+            pass  # Ignore invalid values during typing
+    
+    def on_map_click(self, event):
+        """Handle map click events for canvas-based fallback map (deprecated)"""
+        # This method is kept for backward compatibility with canvas fallback
+        if not hasattr(self, 'map_canvas'):
+            return
+            
+        # Convert canvas coordinates to lat/lon (simplified mapping)
+        canvas_width = self.map_canvas.winfo_width()
+        canvas_height = self.map_canvas.winfo_height()
+        
+        # Simple world map projection (not accurate but functional for demo)
+        lon = ((event.x / canvas_width) * 360) - 180
+        lat = 90 - ((event.y / canvas_height) * 180)
+        
+        # Clamp values to valid ranges
+        lat = max(-90, min(90, lat))
+        lon = max(-180, min(180, lon))
+        
+        self.vars_dict["lat"].set(f"{lat:.6f}")
+        self.vars_dict["lon"].set(f"{lon:.6f}")
+        self.update_map_marker(lat, lon)
+    
+    def on_coordinate_change(self, *args):
+        """Handle coordinate field changes for canvas-based fallback map (deprecated)"""
+        # This method is kept for backward compatibility with canvas fallback
+        if not hasattr(self, 'map_canvas'):
+            return
+            
+        try:
+            lat = float(self.vars_dict["lat"].get())
+            lon = float(self.vars_dict["lon"].get())
+            self.update_map_marker(lat, lon)
+        except ValueError:
+            pass  # Ignore invalid values during typing
+    
+    def update_map_marker(self, lat, lon):
+        """Update the marker position on canvas-based fallback map (deprecated)"""
+        if not hasattr(self, 'map_canvas'):
+            return
+            
+        # Clear existing marker and crosshairs
+        if hasattr(self, 'map_marker') and self.map_marker:
+            self.map_canvas.delete(self.map_marker)
+        self.map_canvas.delete("crosshair")
+        
+        # Convert lat/lon to canvas coordinates (simplified projection)
+        canvas_width = self.map_canvas.winfo_width()
+        canvas_height = self.map_canvas.winfo_height()
+        
+        # Ensure canvas has been drawn
+        if canvas_width <= 1 or canvas_height <= 1:
+            self.map_canvas.after(100, lambda: self.update_map_marker(lat, lon))
+            return
+        
+        x = ((lon + 180) / 360) * canvas_width
+        y = ((90 - lat) / 180) * canvas_height
+        
+        # Draw marker
+        marker_size = 8
+        self.map_marker = self.map_canvas.create_oval(
+            x - marker_size, y - marker_size,
+            x + marker_size, y + marker_size,
+            fill="red", outline="darkred", width=2
+        )
+        
+        # Draw crosshairs
+        self.map_canvas.create_line(x - 15, y, x + 15, y, fill="red", width=2, tags="crosshair")
+        self.map_canvas.create_line(x, y - 15, x, y + 15, fill="red", width=2, tags="crosshair")
     
     def create_waypoints_tab(self, notebook):
         """Create the waypoints management tab"""

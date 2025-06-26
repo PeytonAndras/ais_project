@@ -120,7 +120,7 @@ class ShipManager:
     def _notify_update(self):
         """Notify UI of ship updates"""
         if _ship_listbox_callback:
-            _ship_listbox_callback()
+            _ship_listbox_callback(self.ships)
 
 def get_ship_manager():
     """Get the global ship manager instance"""

@@ -114,39 +114,71 @@ class MaritimeAISTransmitter:
         return encoded
     
     def generate_gmsk(self, symbols):
-        """Generate FSK signal optimized for rtl_ais polar discriminator demodulation"""
+        """Generate GMSK signal with precise symbol timing for decoder compatibility"""
         samples_per_symbol = int(self.sample_rate / self.symbol_rate)
         
-        # CRITICAL: rtl_ais uses polar discriminator: atan2(Im(conj(z1)*z2), Re(conj(z1)*z2))
-        # This requires FSK with proper phase continuity and frequency deviation
-        signal = []
-        phase = 0.0  # Maintain phase continuity - essential for polar discriminator
+        print(f"🔧 True GMSK generation: {len(symbols)} symbols, {samples_per_symbol} samples/symbol")
         
-        print(f"🔧 FSK for polar discriminator: {len(symbols)} symbols, {samples_per_symbol} samples/symbol")
+        # Use a simpler GMSK approach that maintains better symbol timing
+        # while still providing the spectral characteristics of GMSK
         
-        # Generate clean 2-FSK with exact AIS standard frequencies
+        signal = np.zeros(len(symbols) * samples_per_symbol, dtype=np.complex64)
+        phase = 0.0
+        
+        # GMSK parameters
+        h = 0.5  # Modulation index for MSK
+        
+        # Pre-calculate a simple raised cosine transition for smoother FSK
+        # This gives GMSK-like spectral characteristics without complex filtering
+        transition_samples = samples_per_symbol // 4  # Quarter symbol transition
+        if transition_samples > 0:
+            transition = 0.5 * (1 - np.cos(np.linspace(0, np.pi, transition_samples)))
+        else:
+            transition = np.array([1.0])
+        
         for i, symbol in enumerate(symbols):
-            # AIS standard FSK: Mark (1) = +2400 Hz, Space (0) = -2400 Hz
-            # This deviation is critical for rtl_ais to decode properly
+            # Determine frequency for this symbol
             if symbol == 1:
-                freq_offset = +self.freq_deviation  # Mark frequency
+                target_freq = +self.freq_deviation * h  # Mark
             else:
-                freq_offset = -self.freq_deviation  # Space frequency
+                target_freq = -self.freq_deviation * h  # Space
             
-            # Generate samples for this symbol with continuous phase
-            for sample_idx in range(samples_per_symbol):
-                # Phase increment for this frequency offset
-                phase_increment = 2 * np.pi * freq_offset / self.sample_rate
-                phase += phase_increment
+            start_idx = i * samples_per_symbol
+            end_idx = start_idx + samples_per_symbol
+            
+            # Generate samples for this symbol with smooth transitions
+            for j in range(samples_per_symbol):
+                sample_idx = start_idx + j
                 
-                # Generate complex sample - clean FSK tone for polar discriminator
-                sample = np.exp(1j * phase)
-                signal.append(sample)
+                # Apply smooth transition at symbol boundaries
+                if j < len(transition):
+                    # Beginning of symbol - transition from previous
+                    if i > 0:
+                        prev_symbol = symbols[i-1]
+                        prev_freq = +self.freq_deviation * h if prev_symbol == 1 else -self.freq_deviation * h
+                        current_freq = prev_freq + (target_freq - prev_freq) * transition[j]
+                    else:
+                        current_freq = target_freq
+                elif j >= samples_per_symbol - len(transition):
+                    # End of symbol - prepare for transition to next
+                    if i < len(symbols) - 1:
+                        next_symbol = symbols[i+1]
+                        next_freq = +self.freq_deviation * h if next_symbol == 1 else -self.freq_deviation * h
+                        trans_idx = j - (samples_per_symbol - len(transition))
+                        current_freq = target_freq + (next_freq - target_freq) * transition[trans_idx]
+                    else:
+                        current_freq = target_freq
+                else:
+                    # Middle of symbol - constant frequency
+                    current_freq = target_freq
+                
+                # Update phase and generate sample
+                phase += 2 * np.pi * current_freq / self.sample_rate
+                signal[sample_idx] = np.exp(1j * phase)
         
-        signal = np.array(signal, dtype=np.complex64)
-        
-        print(f"📡 FSK signal: {len(signal)} samples, duration={len(signal)/self.sample_rate:.3f}s")
+        print(f"📡 GMSK signal: {len(signal)} samples, duration={len(signal)/self.sample_rate:.3f}s")
         print(f"📊 Signal characteristics: mean_mag={np.mean(np.abs(signal)):.3f}")
+        print(f"🔧 GMSK parameters: h={h}, transition_samples={len(transition)}")
         
         return signal
     

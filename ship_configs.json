@@ -1,41 +1,5 @@
 [
   {
-    "name": "Test Ship",
-    "mmsi": 123456789,
-    "ship_type": 1,
-    "length": 30.0,
-    "beam": 10.0,
-    "lat": 39.4909,
-    "lon": -9.23691439826591,
-    "course": 90.0,
-    "speed": 8.0,
-    "status": 0,
-    "turn": 0,
-    "destination": "",
-    "accuracy": 1,
-    "heading": 90,
-    "waypoints": [
-      [
-        39.490992,
-        -9.247253
-      ],
-      [
-        39.433154,
-        -9.407928
-      ],
-      [
-        39.602182,
-        -9.188909
-      ],
-      [
-        39.774649,
-        -9.444341
-      ]
-    ],
-    "current_waypoint": 0,
-    "waypoint_radius": 0.01
-  },
-  {
     "name": "Atlantic Trader",
     "mmsi": 234567890,
     "ship_type": 70,
@@ -43,17 +7,26 @@
     "beam": 28.0,
     "lat": 39.52,
     "lon": -9.18,
-    "course": 45.0,
+    "course": 37.63115130987478,
     "speed": 12.0,
     "status": 0,
     "turn": 0,
     "destination": "LISBON",
     "accuracy": 1,
-    "heading": 45,
+    "heading": 38,
     "waypoints": [
-      [39.55, -9.15],
-      [39.58, -9.12],
-      [39.61, -9.08]
+      [
+        39.55,
+        -9.15
+      ],
+      [
+        39.58,
+        -9.12
+      ],
+      [
+        39.61,
+        -9.08
+      ]
     ],
     "current_waypoint": 0,
     "waypoint_radius": 0.01
@@ -66,17 +39,26 @@
     "beam": 8.0,
     "lat": 39.45,
     "lon": -9.32,
-    "course": 180.0,
+    "course": 217.6900779160394,
     "speed": 4.0,
     "status": 7,
     "turn": 0,
     "destination": "FISHING GROUNDS",
     "accuracy": 1,
-    "heading": 180,
+    "heading": 218,
     "waypoints": [
-      [39.42, -9.35],
-      [39.38, -9.38],
-      [39.35, -9.41]
+      [
+        39.42,
+        -9.35
+      ],
+      [
+        39.38,
+        -9.38
+      ],
+      [
+        39.35,
+        -9.41
+      ]
     ],
     "current_waypoint": 0,
     "waypoint_radius": 0.01
@@ -89,19 +71,34 @@
     "beam": 12.0,
     "lat": 39.58,
     "lon": -9.15,
-    "course": 270.0,
+    "course": 297.4479312596886,
     "speed": 15.0,
     "status": 0,
     "turn": 0,
     "destination": "PATROL AREA",
     "accuracy": 1,
-    "heading": 270,
+    "heading": 297,
     "waypoints": [
-      [39.60, -9.20],
-      [39.62, -9.25],
-      [39.64, -9.30],
-      [39.62, -9.35],
-      [39.58, -9.30]
+      [
+        39.6,
+        -9.2
+      ],
+      [
+        39.62,
+        -9.25
+      ],
+      [
+        39.64,
+        -9.3
+      ],
+      [
+        39.62,
+        -9.35
+      ],
+      [
+        39.58,
+        -9.3
+      ]
     ],
     "current_waypoint": 0,
     "waypoint_radius": 0.01
@@ -113,19 +110,31 @@
     "length": 300.0,
     "beam": 45.0,
     "lat": 39.35,
-    "lon": -9.50,
-    "course": 15.0,
+    "lon": -9.5,
+    "course": 37.68854090532221,
     "speed": 18.0,
     "status": 0,
     "turn": 0,
     "destination": "ROTTERDAM",
     "accuracy": 1,
-    "heading": 15,
+    "heading": 38,
     "waypoints": [
-      [39.40, -9.45],
-      [39.50, -9.35],
-      [39.65, -9.20],
-      [39.80, -9.00]
+      [
+        39.4,
+        -9.45
+      ],
+      [
+        39.5,
+        -9.35
+      ],
+      [
+        39.65,
+        -9.2
+      ],
+      [
+        39.8,
+        -9.0
+      ]
     ],
     "current_waypoint": 0,
     "waypoint_radius": 0.01
@@ -138,20 +147,51 @@
     "beam": 16.0,
     "lat": 39.72,
     "lon": -9.08,
-    "course": 135.0,
+    "course": 236.99086138650978,
     "speed": 6.0,
     "status": 7,
     "turn": 0,
     "destination": "RESEARCH STATION",
     "accuracy": 1,
-    "heading": 135,
+    "heading": 237,
     "waypoints": [
-      [39.70, -9.12],
-      [39.68, -9.16],
-      [39.66, -9.20],
-      [39.70, -9.15]
+      [
+        39.7,
+        -9.12
+      ],
+      [
+        39.68,
+        -9.16
+      ],
+      [
+        39.66,
+        -9.2
+      ],
+      [
+        39.7,
+        -9.15
+      ]
     ],
     "current_waypoint": 0,
+    "waypoint_radius": 0.01
+  },
+  {
+    "name": "Modified Test Vessel",
+    "mmsi": 123456789,
+    "ship_type": 70,
+    "length": 100,
+    "beam": 20,
+    "lat": 40.7128,
+    "lon": -74.006,
+    "course": 90,
+    "speed": 12,
+    "status": 0,
+    "turn": 0,
+    "destination": "BOSTON",
+    "accuracy": 1,
+    "heading": 90,
+    "waypoints": [],
+    "current_waypoint": -1,
     "waypoint_radius": 0.01
   }
 ]

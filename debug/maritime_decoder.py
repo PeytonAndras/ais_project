@@ -104,11 +104,44 @@ class ProductionMaritimeDecoder:
                 correlation = np.correlate(test_signal, training_template, mode='valid')
                 abs_corr = np.abs(correlation)
                 
-                max_idx = np.argmax(abs_corr)
-                max_corr = abs_corr[max_idx]
+                # CRITICAL FIX: Find the FIRST strong correlation, not the global maximum
+                # The training pattern should be at the beginning of the signal
+                correlation_threshold_early = 150.0  # Lower threshold but still strong
                 
-                if freq_offset == 0 and best_correlation > 200:  # Only print for very strong signals
-                    print(f"🎯 Found strong signal: correlation = {max_corr:.0f}")
+                # Search for first strong correlation in the very early part of the signal
+                # Training should be within the first 1-2 symbol periods from the start
+                max_training_delay = samples_per_symbol * 2  # Allow max 2 symbol delay
+                search_limit = min(len(abs_corr), max_training_delay)
+                
+                early_max_idx = -1
+                early_max_corr = 0
+                
+                for i in range(search_limit):
+                    if abs_corr[i] > correlation_threshold_early:
+                        early_max_idx = i
+                        early_max_corr = abs_corr[i]
+                        break  # Take the FIRST strong correlation
+                
+                # If no strong early correlation found, fall back to global maximum
+                # but only if it's reasonably early (within first 10% of signal)
+                if early_max_idx == -1:
+                    global_max_idx = np.argmax(abs_corr)
+                    global_max_corr = abs_corr[global_max_idx]
+                    
+                    # Only accept global max if it's in the first 10% of the signal
+                    signal_length_threshold = len(abs_corr) // 10
+                    if global_max_idx < signal_length_threshold:
+                        max_idx = global_max_idx
+                        max_corr = global_max_corr
+                    else:
+                        # Skip this correlation - training too late
+                        continue
+                else:
+                    max_idx = early_max_idx
+                    max_corr = early_max_corr
+                
+                if freq_offset == 0 and max_corr > 200:  # Only print for very strong signals
+                    print(f"🎯 Found strong signal: correlation = {max_corr:.0f} at sample {max_idx}")
                 
                 if max_corr > best_correlation:
                     best_correlation = max_corr
@@ -132,13 +165,30 @@ class ProductionMaritimeDecoder:
         
         # Extract symbols from the correlated position with improved polarity
         signal = signal * best_polarity
-        start_sample = best_offset
+        
+        # CRITICAL FIX: Adjust start position to account for correlation peak vs actual training start
+        # The correlation peak occurs at the END of the training pattern, not the beginning
+        # So we need to backtrack by the training template length to get the actual start
+        training_length_samples = len(training_template)
+        actual_training_start = best_offset
+        
+        # For better alignment, the training should start at the beginning of a symbol boundary
+        # Adjust to nearest symbol boundary before the correlation peak
+        symbol_aligned_start = (actual_training_start // samples_per_symbol) * samples_per_symbol
+        
+        start_sample = symbol_aligned_start
         
         # Adaptive symbol extraction - try different thresholds and timing offsets
-        # First, analyze signal characteristics around correlation peak
-        peak_region_start = max(0, best_offset)
-        peak_region_end = min(len(signal), best_offset + len(training_template) + 2000)
+        # First, analyze signal characteristics around the corrected start position
+        peak_region_start = max(0, start_sample)
+        peak_region_end = min(len(signal), start_sample + training_length_samples + 2000)
         peak_signal = signal[peak_region_start:peak_region_end]
+        
+        if best_correlation > 200:  # Debug output for strong signals
+            print(f"🔧 Correlation peak at sample: {best_offset}")
+            print(f"🔧 Adjusted training start: {start_sample}")
+            print(f"🔧 Available samples from start: {len(signal) - start_sample}")
+            print(f"🔧 Expected symbols: {(len(signal) - start_sample) // samples_per_symbol}")
         
         # Calculate multiple threshold candidates
         signal_mean = np.mean(peak_signal)
@@ -168,7 +218,11 @@ class ProductionMaritimeDecoder:
                 symbols = []
                 symbol_qualities = []
                 
-                for i in range(300):  # Extract more symbols
+                # Calculate maximum possible symbols from this position
+                max_possible = (len(signal) - start_sample - timing_offset) // samples_per_symbol
+                extract_count = min(400, max_possible)  # Extract up to 400 symbols or signal limit
+                
+                for i in range(extract_count):
                     sample_pos = start_sample + i * samples_per_symbol + samples_per_symbol // 2 + timing_offset
                     if sample_pos < len(signal) and sample_pos >= 0:
                         value = signal[int(sample_pos)]
@@ -256,8 +310,8 @@ class ProductionMaritimeDecoder:
             
         bits = []
         
-        # First bit: assume previous state was 0
-        prev = 0
+        # First bit: assume previous state was 1 (to match transmitter NRZI encoding)
+        prev = 1
         
         for symbol in symbols:
             bit = 0 if symbol != prev else 1
@@ -379,23 +433,152 @@ class ProductionMaritimeDecoder:
             print(f"🔧 Insufficient symbols: {len(symbols)} total, need {training_end + 184}")
             return None
             
-        # Extract everything after training as raw symbols
+        # Extract everything after training as mixed format symbols
         data_symbols = symbols[training_end:]
-        print(f"🔧 Processing {len(data_symbols)} data symbols (raw, no NRZI)")
+        print(f"🔧 Processing {len(data_symbols)} data symbols (mixed format)")
         
         # Account for signal inversion if needed
         if pattern_inverted:
             data_symbols = [1 - s for s in data_symbols]
         
-        # Convert symbols to bits
-        bits = data_symbols  # No NRZI decoding - rtl_ais expects raw symbols
+        # The transmitter format is: StartFlag(8, raw) + NRZI_Payload + EndFlag(8, raw) + Buffer(8, raw)
+        # We need to extract the start flag directly, then NRZI decode the payload
         
-        print(f"🔧 Raw symbol extraction: {len(bits)} bits extracted")
+        if len(data_symbols) < 16:  # Need at least start flag + some payload
+            print(f"🔧 Insufficient data symbols: {len(data_symbols)}")
+            return None
             
-        # Extract message from raw bits
-        message_bits = self.extract_message(bits)
-        if message_bits is None:
-            print(f"🔧 Message extraction failed from {len(bits)} raw bits")
+        # Extract start flag (first 8 bits, raw)
+        start_flag = data_symbols[:8]
+        start_flag_str = ''.join(map(str, start_flag))
+        
+        print(f"🔧 Start flag: {start_flag_str}")
+        
+        # Try multiple approaches to find valid start flag
+        expected_patterns = [
+            "01111110",  # Normal HDLC flag
+            "10000001",  # Inverted HDLC flag
+        ]
+        
+        best_match = 0
+        best_shift = 0
+        best_invert = False
+        found_pattern = None
+        
+        # Try current position and small shifts
+        for shift in range(0, 4):  # Try shifts 0, 1, 2, 3
+            for invert in [False, True]:
+                if shift == 0:
+                    test_symbols = data_symbols[:8]
+                else:
+                    # Positive shift - take from later in data
+                    if len(data_symbols) >= 8 + shift:
+                        test_symbols = data_symbols[shift:shift+8]
+                    else:
+                        continue
+                
+                if invert:
+                    test_symbols = [1 - s for s in test_symbols]
+                
+                test_flag = ''.join(map(str, test_symbols))
+                
+                # Check against expected patterns (accept good matches for GMSK)
+                for pattern in expected_patterns:
+                    matches = sum(a == b for a, b in zip(test_flag, pattern))
+                    if matches >= 6:  # Reduced to 6/8 bits for GMSK compatibility
+                        best_match = matches
+                        best_shift = shift
+                        best_invert = invert
+                        found_pattern = pattern
+                        print(f"🔧 Found valid flag: shift {shift}, invert {invert}: {test_flag} vs {pattern} ({matches}/8)")
+                        break
+                
+                if best_match >= 6:
+                    break
+            
+            if best_match >= 6:
+                break
+        
+        if best_match < 6:  # Require reasonable flag match for GMSK
+            print(f"🔧 No valid HDLC start flag found: best was {best_match}/8 matches")
+            return None
+        
+        # Apply the best corrections found
+        if best_shift > 0:
+            data_symbols = data_symbols[best_shift:]
+            print(f"🔧 Applied shift of {best_shift} bits")
+        
+        if best_invert:
+            data_symbols = [1 - s for s in data_symbols]
+            print(f"🔧 Applied polarity inversion")
+        
+        print(f"✅ Start flag verified with pattern {found_pattern}")
+        
+        # Find end flag to determine payload length  
+        remaining_symbols = data_symbols[8:]  # After start flag
+        
+        # Look for end flag in reasonable range
+        end_flag_found = False
+        payload_length = 0
+        end_flag_pattern = "01111110"  # Define the end flag pattern
+        
+        # Expected payload length: 168 message + 16 CRC + bit stuffing = ~188 bits
+        min_search = 180
+        max_search = min(200, len(remaining_symbols) - 8)
+        
+        for pos in range(min_search, max_search):
+            if pos + 8 <= len(remaining_symbols):
+                end_candidate = remaining_symbols[pos:pos+8]
+                end_str = ''.join(map(str, end_candidate))
+                end_matches = sum(a == b for a, b in zip(end_str, end_flag_pattern))
+                
+                if end_matches >= 6:  # Found end flag
+                    payload_length = pos
+                    end_flag_found = True
+                    print(f"🔧 Found end flag at position {pos}: {end_str}")
+                    break
+        
+        if not end_flag_found:
+            # Use expected length if end flag not found
+            payload_length = min(188, len(remaining_symbols) - 8)
+            print(f"🔧 Using expected payload length: {payload_length}")
+        
+        # Extract NRZI-encoded payload
+        nrzi_payload_symbols = remaining_symbols[:payload_length]
+        
+        if len(nrzi_payload_symbols) < 168:  # Need at least message bits
+            print(f"🔧 Insufficient NRZI payload: {len(nrzi_payload_symbols)} symbols")
+            return None
+            
+        # NRZI decode the payload
+        payload_bits = self.nrzi_decode(nrzi_payload_symbols, invert=False)
+        
+        print(f"🔧 NRZI decoded payload: {len(payload_bits)} bits")
+        
+        # Remove HDLC bit stuffing (remove 0 after five consecutive 1s)
+        destuffed_bits = []
+        ones_count = 0
+        
+        for bit in payload_bits:
+            if bit == 1:
+                ones_count += 1
+                destuffed_bits.append(bit)
+            else:  # bit == 0
+                if ones_count == 5:
+                    # This is a stuffed bit, skip it
+                    ones_count = 0
+                    continue
+                else:
+                    ones_count = 0
+                    destuffed_bits.append(bit)
+        
+        print(f"🔧 After bit destuffing: {len(destuffed_bits)} bits")
+        
+        # Extract message bits (first 168 bits)
+        if len(destuffed_bits) >= 168:
+            message_bits = destuffed_bits[:168]
+        else:
+            print(f"🔧 Insufficient destuffed bits: {len(destuffed_bits)}")
             return None
         
         print(f"🔧 Extracted {len(message_bits)} message bits")
