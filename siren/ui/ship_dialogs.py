@@ -168,17 +168,26 @@ class ShipDialog:
             self.vars_dict[var_name] = var
             ttk.Entry(param_frame, textvariable=var, width=15).grid(row=i, column=1, sticky=(tk.W, tk.E), pady=2, padx=(5, 0))
             
+            # Add precision hints for coordinate fields
+            if var_name == "lat":
+                ttk.Label(param_frame, text="(±90°, max 6 decimal places)", font=("Arial", 8), foreground="gray").grid(row=i, column=2, sticky=tk.W, pady=2, padx=(5, 0))
+            elif var_name == "lon":
+                ttk.Label(param_frame, text="(±180°, max 6 decimal places)", font=("Arial", 8), foreground="gray").grid(row=i, column=2, sticky=tk.W, pady=2, padx=(5, 0))
+            
             # Flag display next to MMSI
             if var_name == "mmsi":
                 self.flag_var = tk.StringVar(value=get_flag_from_mmsi(default))
                 def update_flag_var(*args):
                     self.flag_var.set(get_flag_from_mmsi(self.vars_dict["mmsi"].get()))
                 self.vars_dict["mmsi"].trace_add("write", lambda *a: update_flag_var())
-                ttk.Label(param_frame, text="Flag:").grid(row=i, column=2, sticky=tk.W, pady=2, padx=(10, 0))
-                ttk.Label(param_frame, textvariable=self.flag_var).grid(row=i, column=3, sticky=tk.W, pady=2, padx=(5, 0))
+                ttk.Label(param_frame, text="Flag:").grid(row=i, column=3, sticky=tk.W, pady=2, padx=(10, 0))
+                ttk.Label(param_frame, textvariable=self.flag_var).grid(row=i, column=4, sticky=tk.W, pady=2, padx=(5, 0))
         
         # Configure parameter frame weights
         param_frame.columnconfigure(1, weight=1)
+        param_frame.columnconfigure(2, weight=0)  # Hint text column
+        param_frame.columnconfigure(3, weight=0)  # Flag label column
+        param_frame.columnconfigure(4, weight=0)  # Flag value column
         
         # Create interactive map frame
         map_frame = ttk.LabelFrame(left_frame, text="Position Map", padding=10)
@@ -634,20 +643,20 @@ Common Status Values:
             
             # Large, visible button
             self.update_btn = tk.Button(button_container, text=update_text, command=self.save_ship,
-                                       font=('Arial', 14, 'bold'), bg='#4CAF50', fg='white',
+                                       font=('Arial', 14, 'bold'), bg='#4CAF50', fg='grey',
                                        padx=30, pady=15)
             self.update_btn.pack(side=tk.LEFT, padx=20)
             print("DEBUG: Update button created and packed")
         else:
             print("DEBUG: Creating save button for new ship")
             self.save_btn = tk.Button(button_container, text="Save Ship", command=self.save_ship,
-                                     font=('Arial', 14, 'bold'), bg='#4CAF50', fg='white',
+                                     font=('Arial', 14, 'bold'), bg='#4CAF50', fg='grey',
                                      padx=30, pady=15)
             self.save_btn.pack(side=tk.LEFT, padx=20)
             print("DEBUG: Save button created and packed")
         
         self.cancel_btn = tk.Button(button_container, text="Cancel", command=self.dialog.destroy,
-                                   font=('Arial', 14, 'bold'), bg='#f44336', fg='white',
+                                   font=('Arial', 14, 'bold'), bg='#f44336', fg='grey',
                                    padx=30, pady=15)
         self.cancel_btn.pack(side=tk.LEFT, padx=20)
         print("DEBUG: Cancel button created and packed")
@@ -665,10 +674,18 @@ Common Status Values:
             lat = float(self.vars_dict["lat"].get())
             if lat < -90 or lat > 90:
                 raise ValueError("Latitude must be -90 to 90")
+            # Check coordinate precision (AIS standard supports up to 6 decimal places)
+            lat_str = self.vars_dict["lat"].get()
+            if '.' in lat_str and len(lat_str.split('.')[1]) > 6:
+                raise ValueError("Latitude precision: maximum 6 decimal places allowed")
                 
             lon = float(self.vars_dict["lon"].get())
             if lon < -180 or lon > 180:
                 raise ValueError("Longitude must be -180 to 180")
+            # Check coordinate precision (AIS standard supports up to 6 decimal places)
+            lon_str = self.vars_dict["lon"].get()
+            if '.' in lon_str and len(lon_str.split('.')[1]) > 6:
+                raise ValueError("Longitude precision: maximum 6 decimal places allowed")
             
             ship_manager = get_ship_manager()
             
