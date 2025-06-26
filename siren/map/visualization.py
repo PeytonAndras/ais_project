@@ -34,6 +34,11 @@ class MapVisualization:
         self.ship_tracks = {}   # Dictionary to store historical positions for each ship
         self.track_lines = {}   # Dictionary to store the polyline objects for ship tracks
         
+        # Waypoint display variables
+        self.waypoint_markers = {}  # Dictionary to store waypoint markers by ship MMSI
+        self.waypoint_lines = {}    # Dictionary to store route lines between waypoints
+        self.selected_ship_mmsi = None  # Currently selected ship for waypoint display
+        
         # Map and control references
         self.map_widget = None
         self.custom_map_viewer = None
@@ -202,30 +207,41 @@ class MapVisualization:
                                           command=self.toggle_track_visibility)
         show_tracks_check.grid(row=2, column=0, columnspan=3, sticky=tk.W, pady=5)
 
+        # Waypoint display toggle
+        self.show_waypoints_var = tk.BooleanVar(value=True)
+        show_waypoints_check = ttk.Checkbutton(control_panel, text="Show Waypoints", 
+                                             variable=self.show_waypoints_var,
+                                             command=self.toggle_waypoint_visibility)
+        show_waypoints_check.grid(row=3, column=0, columnspan=3, sticky=tk.W, pady=5)
+
         # Map type selection
-        ttk.Label(control_panel, text="Map Type:").grid(row=3, column=0, sticky=tk.W, pady=10)
+        ttk.Label(control_panel, text="Map Type:").grid(row=4, column=0, sticky=tk.W, pady=10)
         self.map_type_var = tk.StringVar(value="OpenStreetMap")
         
         if self.map_available:
             map_type_combo = ttk.Combobox(control_panel, textvariable=self.map_type_var, 
                                          values=["OpenStreetMap", "Google Normal", "Google Satellite"])
-            map_type_combo.grid(row=3, column=1, columnspan=2, sticky=(tk.W, tk.E), pady=10)
+            map_type_combo.grid(row=4, column=1, columnspan=2, sticky=(tk.W, tk.E), pady=10)
             map_type_combo.bind("<<ComboboxSelected>>", self.change_map_type)
         else:
             ttk.Combobox(control_panel, textvariable=self.map_type_var, 
-                        values=["OpenStreetMap"], state="disabled").grid(row=3, column=1, columnspan=2, sticky=(tk.W, tk.E), pady=10)
+                        values=["OpenStreetMap"], state="disabled").grid(row=4, column=1, columnspan=2, sticky=(tk.W, tk.E), pady=10)
 
         # Center map button
         ttk.Button(control_panel, text="Center on Ships", command=self.center_map_on_ships).grid(
-            row=4, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+            row=5, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
 
         # Clear tracks button
         ttk.Button(control_panel, text="Clear All Tracks", command=self.clear_all_tracks).grid(
-            row=5, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+            row=6, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+
+        # Clear waypoints button
+        ttk.Button(control_panel, text="Clear Waypoints", command=self.clear_all_waypoints).grid(
+            row=7, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
 
         # Ship information display
         ship_info_frame = ttk.LabelFrame(control_panel, text="Selected Ship Info", padding=10)
-        ship_info_frame.grid(row=6, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=15)
+        ship_info_frame.grid(row=8, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=15)
 
         self.ship_info_text = tk.Text(ship_info_frame, width=25, height=8, wrap=tk.WORD)
         self.ship_info_text.pack(fill=tk.BOTH, expand=True)
@@ -428,6 +444,29 @@ class MapVisualization:
                 except Exception as e:
                     print(f"Error showing track for MMSI {mmsi}: {e}")
 
+    def toggle_waypoint_visibility(self):
+        """Toggle visibility of waypoints on map"""
+        if not self.map_available or not self.map_widget:
+            return
+            
+        show_waypoints = self.show_waypoints_var.get()
+        
+        if not show_waypoints:
+            # Hide all waypoints
+            self.clear_all_waypoints()
+        else:
+            # Show waypoints for the currently selected ship
+            if self.selected_ship_mmsi:
+                from ..ships.ship_manager import get_ship_manager
+                ship_manager = get_ship_manager()
+                ships = ship_manager.get_ships()
+                
+                # Find the ship with the selected MMSI
+                for ship in ships:
+                    if ship.mmsi == self.selected_ship_mmsi:
+                        self.show_ship_waypoints(ship)
+                        break
+
     def update_map(self, force=False, selected_ship_indices=None):
         """Update the map with current ship positions
         
@@ -623,6 +662,9 @@ class MapVisualization:
                 except:
                     pass
                     
+            # Display waypoints for this ship
+            self.show_ship_waypoints(ship_obj)
+                    
             # Force a redraw of the map widget
             if self.map_widget:
                 self.map_widget.update_idletasks()
@@ -665,6 +707,127 @@ class MapVisualization:
                 except:
                     pass
             self.ship_markers.clear()
+
+    def show_ship_waypoints(self, ship_obj):
+        """Display waypoints for a specific ship on the map"""
+        if not self.map_widget or not hasattr(ship_obj, 'waypoints') or not ship_obj.waypoints:
+            return
+            
+        # Check if waypoints should be shown
+        if hasattr(self, 'show_waypoints_var') and not self.show_waypoints_var.get():
+            return
+            
+        # Clear any existing waypoints first
+        self.clear_all_waypoints()
+        
+        # Store the selected ship MMSI
+        self.selected_ship_mmsi = ship_obj.mmsi
+        
+        # Initialize storage for this ship's waypoint markers and lines
+        self.waypoint_markers[ship_obj.mmsi] = []
+        self.waypoint_lines[ship_obj.mmsi] = []
+        
+        try:
+            # Display waypoints as numbered markers
+            for i, waypoint in enumerate(ship_obj.waypoints):
+                lat, lon = waypoint[0], waypoint[1]
+                
+                # Create waypoint marker
+                waypoint_text = f"WP {i+1}"
+                marker = self.map_widget.set_marker(
+                    lat, lon,
+                    text=waypoint_text,
+                    marker_color_circle="blue",
+                    marker_color_outside="darkblue"
+                )
+                self.waypoint_markers[ship_obj.mmsi].append(marker)
+            
+            # Draw route lines between waypoints (including from ship to first waypoint)
+            positions = [(ship_obj.lat, ship_obj.lon)]  # Start from ship position
+            positions.extend([(wp[0], wp[1]) for wp in ship_obj.waypoints])
+            
+            # Create polyline connecting all positions
+            if len(positions) > 1:
+                try:
+                    route_line = self.map_widget.set_path(positions, color="blue", width=3)
+                    self.waypoint_lines[ship_obj.mmsi].append(route_line)
+                except Exception as e:
+                    print(f"Error creating route line: {e}")
+            
+            # Update ship info to show waypoint information
+            if self.ship_info_text:
+                current_text = self.ship_info_text.get(1.0, tk.END)
+                waypoint_info = f"\nWaypoints ({len(ship_obj.waypoints)}):\n"
+                for i, wp in enumerate(ship_obj.waypoints):
+                    waypoint_info += f"  WP {i+1}: {wp[0]:.5f}, {wp[1]:.5f}\n"
+                
+                self.ship_info_text.config(state=tk.NORMAL)
+                self.ship_info_text.insert(tk.END, waypoint_info)
+                self.ship_info_text.config(state=tk.DISABLED)
+                
+        except Exception as e:
+            print(f"Error displaying waypoints: {e}")
+    
+    def clear_all_waypoints(self):
+        """Clear all waypoint markers and route lines from the map"""
+        if not self.map_widget:
+            return
+            
+        try:
+            # Clear all waypoint markers
+            for mmsi, markers in self.waypoint_markers.items():
+                for marker in markers:
+                    try:
+                        self.map_widget.delete(marker)
+                    except:
+                        pass
+            
+            # Clear all route lines
+            for mmsi, lines in self.waypoint_lines.items():
+                for line in lines:
+                    try:
+                        self.map_widget.delete(line)
+                    except:
+                        pass
+                        
+            # Reset storage
+            self.waypoint_markers.clear()
+            self.waypoint_lines.clear()
+            self.selected_ship_mmsi = None
+            
+        except Exception as e:
+            print(f"Error clearing waypoints: {e}")
+    
+    def clear_ship_waypoints(self, ship_mmsi):
+        """Clear waypoints for a specific ship"""
+        if not self.map_widget or ship_mmsi not in self.waypoint_markers:
+            return
+            
+        try:
+            # Clear markers for this ship
+            for marker in self.waypoint_markers[ship_mmsi]:
+                try:
+                    self.map_widget.delete(marker)
+                except:
+                    pass
+            
+            # Clear route lines for this ship
+            if ship_mmsi in self.waypoint_lines:
+                for line in self.waypoint_lines[ship_mmsi]:
+                    try:
+                        self.map_widget.delete(line)
+                    except:
+                        pass
+            
+            # Remove from storage
+            self.waypoint_markers.pop(ship_mmsi, None)
+            self.waypoint_lines.pop(ship_mmsi, None)
+            
+            if self.selected_ship_mmsi == ship_mmsi:
+                self.selected_ship_mmsi = None
+                
+        except Exception as e:
+            print(f"Error clearing waypoints for ship {ship_mmsi}: {e}")
 
 
 # Global instance for easy access
