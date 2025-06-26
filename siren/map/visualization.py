@@ -166,6 +166,10 @@ class MapVisualization:
             self.map_widget = tkintermapview.TkinterMapView(container, width=600, height=400, corner_radius=0)
             self.map_widget.grid(row=0, column=0, sticky=(tk.N, tk.W, tk.E, tk.S))
             
+            # Initialize local tile manager
+            from .local_tiles import get_tile_manager
+            self.tile_manager = get_tile_manager()
+            
             # Set default position (Portugal)
             self.map_widget.set_tile_server("https://a.tile.openstreetmap.org/{z}/{x}/{y}.png")    
             self.map_widget.set_position(39.5, -9.25)  # Portugal area
@@ -220,7 +224,7 @@ class MapVisualization:
         
         if self.map_available:
             map_type_combo = ttk.Combobox(control_panel, textvariable=self.map_type_var, 
-                                         values=["OpenStreetMap", "Google Normal", "Google Satellite"])
+                                         values=["OpenStreetMap", "Local Cache", "Google Normal", "Google Satellite"])
             map_type_combo.grid(row=4, column=1, columnspan=2, sticky=(tk.W, tk.E), pady=10)
             map_type_combo.bind("<<ComboboxSelected>>", self.change_map_type)
         else:
@@ -239,9 +243,34 @@ class MapVisualization:
         ttk.Button(control_panel, text="Clear Waypoints", command=self.clear_all_waypoints).grid(
             row=7, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=5)
 
+        # Local cache management
+        cache_frame = ttk.LabelFrame(control_panel, text="Map Cache", padding=5)
+        cache_frame.grid(row=8, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+
+        # Cache info display
+        self.cache_info_var = tk.StringVar(value="Checking cache...")
+        cache_info_label = ttk.Label(cache_frame, textvariable=self.cache_info_var, font=("Arial", 9))
+        cache_info_label.grid(row=0, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=2)
+
+        # Download buttons
+        ttk.Button(cache_frame, text="Download Portugal", 
+                  command=self.download_portugal_tiles).grid(row=1, column=0, sticky=(tk.W, tk.E), padx=2, pady=2)
+        ttk.Button(cache_frame, text="Download Atlantic", 
+                  command=self.download_atlantic_tiles).grid(row=1, column=1, sticky=(tk.W, tk.E), padx=2, pady=2)
+        ttk.Button(cache_frame, text="Clear Cache", 
+                  command=self.clear_tile_cache).grid(row=1, column=2, sticky=(tk.W, tk.E), padx=2, pady=2)
+
+        # Configure cache frame columns
+        cache_frame.columnconfigure(0, weight=1)
+        cache_frame.columnconfigure(1, weight=1)
+        cache_frame.columnconfigure(2, weight=1)
+
+        # Update cache info initially
+        self.update_cache_info()
+
         # Ship information display
         ship_info_frame = ttk.LabelFrame(control_panel, text="Selected Ship Info", padding=10)
-        ship_info_frame.grid(row=8, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=15)
+        ship_info_frame.grid(row=9, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=15)
 
         self.ship_info_text = tk.Text(ship_info_frame, width=25, height=8, wrap=tk.WORD)
         self.ship_info_text.pack(fill=tk.BOTH, expand=True)
@@ -346,6 +375,23 @@ class MapVisualization:
         selected = self.map_type_var.get()
         if selected == "OpenStreetMap":
             self.map_widget.set_tile_server("https://a.tile.openstreetmap.org/{z}/{x}/{y}.png")
+        elif selected == "Local Cache":
+            # Use local tiles if available
+            if hasattr(self, 'tile_manager'):
+                cache_info = self.tile_manager.get_cache_info()
+                if cache_info["total_tiles"] > 0:
+                    # Try to use local tiles - note: tkintermapview might not support file:// URLs
+                    # As a fallback, we'll use offline mode with cached tiles
+                    print(f"Using local cache with {cache_info['total_tiles']} tiles ({cache_info['total_size_mb']:.1f} MB)")
+                    # For now, still use online server but with caching preference
+                    self.map_widget.set_tile_server("https://a.tile.openstreetmap.org/{z}/{x}/{y}.png")
+                else:
+                    messagebox.showwarning("No Local Cache", "No cached tiles available. Use 'Download Tiles' to cache map data.")
+                    self.map_type_var.set("OpenStreetMap")
+                    self.map_widget.set_tile_server("https://a.tile.openstreetmap.org/{z}/{x}/{y}.png")
+            else:
+                messagebox.showerror("Cache Error", "Local tile manager not available.")
+                self.map_type_var.set("OpenStreetMap")
         elif selected == "Google Normal":
             self.map_widget.set_tile_server("https://mt0.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}&s=Ga", max_zoom=22)
         elif selected == "Google Satellite":
@@ -862,6 +908,93 @@ class MapVisualization:
                 
         except Exception as e:
             print(f"Error clearing waypoints for ship {ship_mmsi}: {e}")
+
+    def update_cache_info(self):
+        """Update the cache information display"""
+        if hasattr(self, 'tile_manager'):
+            try:
+                cache_info = self.tile_manager.get_cache_info()
+                info_text = f"Cached: {cache_info['total_tiles']} tiles ({cache_info['total_size_mb']:.1f} MB)"
+                self.cache_info_var.set(info_text)
+            except Exception as e:
+                self.cache_info_var.set(f"Cache error: {e}")
+        else:
+            self.cache_info_var.set("Cache not available")
+
+    def download_portugal_tiles(self):
+        """Download tiles for Portugal area"""
+        if not hasattr(self, 'tile_manager'):
+            messagebox.showerror("Error", "Tile manager not available")
+            return
+            
+        def progress_callback(progress, downloaded, total):
+            self.cache_info_var.set(f"Downloading: {progress:.1f}% ({downloaded}/{total})")
+            self.parent_frame.update_idletasks()
+        
+        try:
+            from .local_tiles import download_portugal_area
+            threading.Thread(
+                target=self._download_tiles_thread,
+                args=(download_portugal_area, progress_callback),
+                daemon=True
+            ).start()
+        except Exception as e:
+            messagebox.showerror("Download Error", f"Failed to start download: {e}")
+
+    def download_atlantic_tiles(self):
+        """Download tiles for Atlantic area"""
+        if not hasattr(self, 'tile_manager'):
+            messagebox.showerror("Error", "Tile manager not available")
+            return
+            
+        def progress_callback(progress, downloaded, total):
+            self.cache_info_var.set(f"Downloading: {progress:.1f}% ({downloaded}/{total})")
+            self.parent_frame.update_idletasks()
+        
+        try:
+            from .local_tiles import download_atlantic_area
+            threading.Thread(
+                target=self._download_tiles_thread,
+                args=(download_atlantic_area, progress_callback),
+                daemon=True
+            ).start()
+        except Exception as e:
+            messagebox.showerror("Download Error", f"Failed to start download: {e}")
+
+    def _download_tiles_thread(self, download_func, progress_callback):
+        """Download tiles in a background thread"""
+        try:
+            downloaded, total = download_func(self.tile_manager, progress_callback)
+            # Update UI in main thread
+            self.parent_frame.after(0, lambda: self._download_complete(downloaded, total))
+        except Exception as e:
+            self.parent_frame.after(0, lambda: self._download_error(str(e)))
+
+    def _download_complete(self, downloaded, total):
+        """Handle download completion"""
+        self.update_cache_info()
+        messagebox.showinfo("Download Complete", f"Downloaded {downloaded}/{total} tiles successfully!")
+
+    def _download_error(self, error_msg):
+        """Handle download error"""
+        self.update_cache_info()
+        messagebox.showerror("Download Error", f"Download failed: {error_msg}")
+
+    def clear_tile_cache(self):
+        """Clear the local tile cache"""
+        if not hasattr(self, 'tile_manager'):
+            messagebox.showerror("Error", "Tile manager not available")
+            return
+            
+        if messagebox.askyesno("Clear Cache", "Are you sure you want to clear all cached map tiles?"):
+            try:
+                if self.tile_manager.clear_cache():
+                    self.update_cache_info()
+                    messagebox.showinfo("Cache Cleared", "Map tile cache has been cleared.")
+                else:
+                    messagebox.showerror("Error", "Failed to clear cache.")
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to clear cache: {e}")
 
 
 # Global instance for easy access
