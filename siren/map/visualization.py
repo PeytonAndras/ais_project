@@ -500,6 +500,9 @@ class MapVisualization:
         except (ValueError, AttributeError):
             max_track_points = 20  # Default value
         
+        # Remember selected ship for waypoint preservation
+        preserve_waypoints_for = self.selected_ship_mmsi
+        
         # Hide all existing markers first
         all_mmsis = set(self.ship_markers.keys())
         
@@ -603,6 +606,15 @@ class MapVisualization:
                         print(f"Error hiding track for MMSI {mmsi}: {e}")
                     finally:
                         self.track_lines[mmsi] = None
+        
+        # Restore waypoints for the selected ship if they were shown before the update
+        if preserve_waypoints_for and preserve_waypoints_for in displayed_mmsis:
+            # Find the ship object for waypoint restoration
+            for ship in ships:
+                if ship.mmsi == preserve_waypoints_for:
+                    print(f"DEBUG: Restoring waypoints for ship {ship.name} after map update")
+                    self.show_ship_waypoints(ship)
+                    break
     
     def _update_custom_map(self, ships, selected_ship_indices):
         """Update the custom map with ship positions"""
@@ -623,6 +635,7 @@ class MapVisualization:
     def _make_click_handler(self, ship_obj, marker_obj):
         """Create a click handler for ship markers"""
         def on_marker_click(marker=None):
+            print(f"DEBUG: Ship clicked - {ship_obj.name} (MMSI: {ship_obj.mmsi})")
             if not self.ship_info_text:
                 return
                 
@@ -663,6 +676,7 @@ class MapVisualization:
                     pass
                     
             # Display waypoints for this ship
+            print(f"DEBUG: About to show waypoints for ship with {len(getattr(ship_obj, 'waypoints', []))} waypoints")
             self.show_ship_waypoints(ship_obj)
                     
             # Force a redraw of the map widget
@@ -711,17 +725,28 @@ class MapVisualization:
     def show_ship_waypoints(self, ship_obj):
         """Display waypoints for a specific ship on the map"""
         if not self.map_widget or not hasattr(ship_obj, 'waypoints') or not ship_obj.waypoints:
+            print(f"DEBUG: Cannot show waypoints - map_widget: {self.map_widget is not None}, has_waypoints: {hasattr(ship_obj, 'waypoints')}, waypoints: {getattr(ship_obj, 'waypoints', None)}")
             return
             
         # Check if waypoints should be shown
         if hasattr(self, 'show_waypoints_var') and not self.show_waypoints_var.get():
+            print(f"DEBUG: Waypoints disabled via toggle")
             return
             
-        # Clear any existing waypoints first
-        self.clear_all_waypoints()
+        print(f"DEBUG: Showing waypoints for ship {ship_obj.name} (MMSI: {ship_obj.mmsi})")
+        print(f"DEBUG: Ship has {len(ship_obj.waypoints)} waypoints: {ship_obj.waypoints}")
+            
+        # Clear any existing waypoints first (but only if showing different ship)
+        if self.selected_ship_mmsi != ship_obj.mmsi:
+            self.clear_all_waypoints()
         
         # Store the selected ship MMSI
         self.selected_ship_mmsi = ship_obj.mmsi
+        
+        # Skip if waypoints already exist for this ship
+        if ship_obj.mmsi in self.waypoint_markers and self.waypoint_markers[ship_obj.mmsi]:
+            print(f"DEBUG: Waypoints already displayed for ship {ship_obj.mmsi}")
+            return
         
         # Initialize storage for this ship's waypoint markers and lines
         self.waypoint_markers[ship_obj.mmsi] = []
@@ -731,32 +756,38 @@ class MapVisualization:
             # Display waypoints as numbered markers
             for i, waypoint in enumerate(ship_obj.waypoints):
                 lat, lon = waypoint[0], waypoint[1]
+                print(f"DEBUG: Creating waypoint {i+1} at {lat}, {lon}")
                 
                 # Create waypoint marker
                 waypoint_text = f"WP {i+1}"
-                marker = self.map_widget.set_marker(
-                    lat, lon,
-                    text=waypoint_text,
-                    marker_color_circle="blue",
-                    marker_color_outside="darkblue"
-                )
-                self.waypoint_markers[ship_obj.mmsi].append(marker)
+                try:
+                    marker = self.map_widget.set_marker(
+                        lat, lon,
+                        text=waypoint_text,
+                        marker_color_circle="blue",
+                        marker_color_outside="darkblue"
+                    )
+                    self.waypoint_markers[ship_obj.mmsi].append(marker)
+                    print(f"DEBUG: Successfully created waypoint marker {i+1}")
+                except Exception as e:
+                    print(f"DEBUG: Error creating waypoint marker {i+1}: {e}")
             
             # Draw route lines between waypoints (including from ship to first waypoint)
             positions = [(ship_obj.lat, ship_obj.lon)]  # Start from ship position
             positions.extend([(wp[0], wp[1]) for wp in ship_obj.waypoints])
+            print(f"DEBUG: Route positions: {positions}")
             
             # Create polyline connecting all positions
             if len(positions) > 1:
                 try:
                     route_line = self.map_widget.set_path(positions, color="blue", width=3)
                     self.waypoint_lines[ship_obj.mmsi].append(route_line)
+                    print(f"DEBUG: Successfully created route line")
                 except Exception as e:
-                    print(f"Error creating route line: {e}")
+                    print(f"DEBUG: Error creating route line: {e}")
             
             # Update ship info to show waypoint information
             if self.ship_info_text:
-                current_text = self.ship_info_text.get(1.0, tk.END)
                 waypoint_info = f"\nWaypoints ({len(ship_obj.waypoints)}):\n"
                 for i, wp in enumerate(ship_obj.waypoints):
                     waypoint_info += f"  WP {i+1}: {wp[0]:.5f}, {wp[1]:.5f}\n"
@@ -764,9 +795,12 @@ class MapVisualization:
                 self.ship_info_text.config(state=tk.NORMAL)
                 self.ship_info_text.insert(tk.END, waypoint_info)
                 self.ship_info_text.config(state=tk.DISABLED)
+                print(f"DEBUG: Updated ship info with waypoint details")
                 
         except Exception as e:
-            print(f"Error displaying waypoints: {e}")
+            print(f"DEBUG: Error displaying waypoints: {e}")
+            import traceback
+            traceback.print_exc()
     
     def clear_all_waypoints(self):
         """Clear all waypoint markers and route lines from the map"""

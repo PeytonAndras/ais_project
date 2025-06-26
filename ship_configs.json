@@ -200,9 +200,9 @@
     "ship_type": 70,
     "length": 100.0,
     "beam": 20.0,
-    "lat": 40.544476,
-    "lon": -73.979221,
-    "course": 69.00745166848941,
+    "lat": 40.54816018603436,
+    "lon": -73.96662509974219,
+    "course": 68.87017062830239,
     "speed": 8.0,
     "status": 0,
     "turn": 0,
@@ -211,8 +211,32 @@
     "heading": 69,
     "waypoints": [
       [
-        39.440103,
-        -9.329651
+        39.560904,
+        -9.34613
+      ]
+    ],
+    "current_waypoint": 0,
+    "waypoint_radius": 0.01
+  },
+  {
+    "name": "Vessel 1",
+    "mmsi": 366000001,
+    "ship_type": 70,
+    "length": 100.0,
+    "beam": 20.0,
+    "lat": 40.7128,
+    "lon": -74.006,
+    "course": 69.16733509850371,
+    "speed": 8.0,
+    "status": 0,
+    "turn": 0,
+    "destination": "NEW YORK",
+    "accuracy": 1,
+    "heading": 69,
+    "waypoints": [
+      [
+        39.436921,
+        -9.395569
       ]
     ],
     "current_waypoint": 0,
