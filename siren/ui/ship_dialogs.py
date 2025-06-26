@@ -34,9 +34,10 @@ except ImportError:
 class ShipDialog:
     """Base class for ship add/edit dialogs"""
     
-    def __init__(self, parent, title, ship=None):
+    def __init__(self, parent, title, ship=None, simulation_context=None):
         self.parent = parent
         self.ship = ship  # None for add, ship object for edit
+        self.simulation_context = simulation_context or {}
         self.dialog = None
         self.vars_dict = {}
         self.flag_var = None
@@ -58,21 +59,52 @@ class ShipDialog:
     def create_dialog(self, title):
         """Create the main dialog window"""
         self.dialog = tk.Toplevel(self.parent)
+        
+        # Modify title to show simulation status
+        if self.simulation_context.get('is_ship_in_simulation'):
+            title += " [SIMULATION RUNNING]"
+        elif self.simulation_context.get('is_simulating'):
+            title += " [SIMULATION ACTIVE - NOT SIMULATED]"
+            
         self.dialog.title(title)
-        self.dialog.attributes("-fullscreen", True)
+        # Don't make it fullscreen for now - use regular maximized window
+        self.dialog.state('zoomed')  # Maximize on Windows/Linux, or use geometry on Mac
         
-        main_frame = ttk.Frame(self.dialog, padding=10)
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        # Try to maximize properly on different platforms
+        try:
+            self.dialog.state('zoomed')
+        except:
+            # Fallback to manual sizing
+            self.dialog.geometry("1200x800")
         
-        ship_notebook = ttk.Notebook(main_frame)
-        ship_notebook.pack(fill=tk.BOTH, expand=True, pady=5)
+        # Create main container with explicit layout
+        main_container = ttk.Frame(self.dialog)
+        main_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        # Add simulation status banner if applicable
+        if self.simulation_context.get('is_simulating'):
+            self.create_simulation_banner(main_container)
+        
+        # Content area (notebook) - use grid for better control
+        main_container.rowconfigure(0, weight=1)  # Content area expands
+        main_container.rowconfigure(1, weight=0)  # Button area fixed
+        main_container.columnconfigure(0, weight=1)
+        
+        content_frame = ttk.Frame(main_container)
+        content_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 20))
+        
+        ship_notebook = ttk.Notebook(content_frame)
+        ship_notebook.pack(fill=tk.BOTH, expand=True)
         
         # Create tabs
         self.create_basic_info_tab(ship_notebook)
         self.create_waypoints_tab(ship_notebook)
         
-        # Bottom button frame
-        self.create_button_frame(main_frame)
+        # Bottom button frame - use grid so it's always at bottom
+        button_frame = ttk.Frame(main_container)
+        button_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(10, 0))
+        
+        self.create_button_frame_in_container(button_frame)
     
     def create_basic_info_tab(self, notebook):
         """Create the basic ship information tab"""
@@ -581,20 +613,46 @@ Common Status Values:
                     self.waypoint_map.delete(m)
                 self.waypoint_markers.clear()
     
-    def create_button_frame(self, parent):
-        """Create the bottom button frame"""
-        btn_frame = ttk.Frame(parent)
-        btn_frame.pack(fill=tk.X, pady=10)
+    def create_button_frame_in_container(self, container):
+        """Create the button frame in the provided container"""
+        print(f"DEBUG: Creating button frame in container with simulation context: {self.simulation_context}")
+        
+        # Add simulation note if applicable
+        if self.simulation_context.get('is_ship_in_simulation'):
+            note_label = ttk.Label(container, text="💡 Changes will be applied to the running simulation immediately", 
+                                  font=('Arial', 12, 'bold'), foreground='green')
+            note_label.pack(pady=(0, 10))
+            print("DEBUG: Added simulation note")
+        
+        # Button container centered
+        button_container = ttk.Frame(container)
+        button_container.pack(anchor=tk.CENTER)
         
         if self.ship:
-            ttk.Button(btn_frame, text="Update Ship", command=self.save_ship, 
-                      padding=(20, 10)).pack(side=tk.LEFT, padx=10)
+            update_text = "Update Ship Live" if self.simulation_context.get('is_ship_in_simulation') else "Update Ship"
+            print(f"DEBUG: Creating update button with text: '{update_text}'")
+            
+            # Large, visible button
+            self.update_btn = tk.Button(button_container, text=update_text, command=self.save_ship,
+                                       font=('Arial', 14, 'bold'), bg='#4CAF50', fg='white',
+                                       padx=30, pady=15)
+            self.update_btn.pack(side=tk.LEFT, padx=20)
+            print("DEBUG: Update button created and packed")
         else:
-            ttk.Button(btn_frame, text="Save Ship", command=self.save_ship, 
-                      padding=(20, 10)).pack(side=tk.LEFT, padx=10)
+            print("DEBUG: Creating save button for new ship")
+            self.save_btn = tk.Button(button_container, text="Save Ship", command=self.save_ship,
+                                     font=('Arial', 14, 'bold'), bg='#4CAF50', fg='white',
+                                     padx=30, pady=15)
+            self.save_btn.pack(side=tk.LEFT, padx=20)
+            print("DEBUG: Save button created and packed")
         
-        ttk.Button(btn_frame, text="Cancel", command=self.dialog.destroy, 
-                  padding=(20, 10)).pack(side=tk.LEFT, padx=10)
+        self.cancel_btn = tk.Button(button_container, text="Cancel", command=self.dialog.destroy,
+                                   font=('Arial', 14, 'bold'), bg='#f44336', fg='white',
+                                   padx=30, pady=15)
+        self.cancel_btn.pack(side=tk.LEFT, padx=20)
+        print("DEBUG: Cancel button created and packed")
+        
+        print("DEBUG: All buttons should now be visible!")
     
     def save_ship(self):
         """Save or update the ship"""
@@ -616,41 +674,71 @@ Common Status Values:
             
             # Debug: Print waypoints before saving
             print(f"DEBUG: Dialog waypoints: {self.waypoints}")
+            print(f"DEBUG: Simulation context: {self.simulation_context}")
             
             if self.ship:
-                # Update existing ship
-                self.ship.name = self.vars_dict["ship_name"].get()
-                self.ship.mmsi = mmsi
-                self.ship.ship_type = int(self.vars_dict["ship_type"].get())
-                self.ship.length = float(self.vars_dict["length"].get())
-                self.ship.beam = float(self.vars_dict["beam"].get())
-                self.ship.lat = lat
-                self.ship.lon = lon
-                self.ship.course = float(self.vars_dict["course"].get())
-                self.ship.speed = float(self.vars_dict["speed"].get())
-                self.ship.status = int(self.vars_dict["status"].get())
-                self.ship.turn = int(self.vars_dict["turn"].get())
-                self.ship.destination = self.vars_dict["dest"].get()
-                self.ship.heading = round(self.ship.course)
+                # Update existing ship by creating a new ship object and using ship manager's update method
+                # This ensures proper reference updates
+                ship_index = self.simulation_context.get('ship_index')
+                if ship_index is None:
+                    # Find the ship index if not provided
+                    ships = ship_manager.get_ships()
+                    ship_index = ships.index(self.ship) if self.ship in ships else -1
                 
-                # Update waypoints
-                self.ship.waypoints = self.waypoints.copy()
-                print(f"DEBUG: Ship waypoints after update: {self.ship.waypoints}")
+                if ship_index >= 0:
+                    # Update the ship properties
+                    self.ship.name = self.vars_dict["ship_name"].get()
+                    self.ship.mmsi = mmsi
+                    self.ship.ship_type = int(self.vars_dict["ship_type"].get())
+                    self.ship.length = float(self.vars_dict["length"].get())
+                    self.ship.beam = float(self.vars_dict["beam"].get())
+                    self.ship.lat = lat
+                    self.ship.lon = lon
+                    self.ship.course = float(self.vars_dict["course"].get())
+                    self.ship.speed = float(self.vars_dict["speed"].get())
+                    self.ship.status = int(self.vars_dict["status"].get())
+                    self.ship.turn = int(self.vars_dict["turn"].get())
+                    self.ship.destination = self.vars_dict["dest"].get()
+                    self.ship.heading = round(self.ship.course)
+                    
+                    # Update waypoints
+                    self.ship.waypoints = self.waypoints.copy()
+                    print(f"DEBUG: Ship waypoints after update: {self.ship.waypoints}")
+                    
+                    # Reset current_waypoint if waypoints were changed
+                    if self.waypoints:
+                        self.ship.current_waypoint = 0
+                        # Set initial course toward first waypoint
+                        first_wp = self.waypoints[0]
+                        bearing = calculate_initial_compass_bearing((self.ship.lat, self.ship.lon), first_wp)
+                        self.ship.course = bearing
+                        self.ship.heading = round(bearing)
+                        print(f"DEBUG: Course set to first waypoint: {bearing:.1f}°")
+                    else:
+                        self.ship.current_waypoint = -1  # No waypoints
+                    
+                    # Use ship manager's update method to ensure proper notification
+                    ship_manager.update_ship(ship_index, self.ship)
+                    print(f"DEBUG: Updated ship {ship_index} via ship manager")
                 
-                # Reset current_waypoint if waypoints were changed
-                if self.waypoints:
-                    self.ship.current_waypoint = 0
-                    # Set initial course toward first waypoint
-                    first_wp = self.waypoints[0]
-                    bearing = calculate_initial_compass_bearing((self.ship.lat, self.ship.lon), first_wp)
-                    self.ship.course = bearing
-                    self.ship.heading = round(bearing)
-                    print(f"DEBUG: Course set to first waypoint: {bearing:.1f}°")
+                # Handle simulation update if ship is being simulated
+                if self.simulation_context.get('is_ship_in_simulation') and self.simulation_context.get('update_callback'):
+                    ship_index = self.simulation_context.get('ship_index')
+                    update_callback = self.simulation_context.get('update_callback')
+                    update_callback(ship_index, self.ship)
+                    
+                    # Show success message for live update
+                    messagebox.showinfo("Live Update Successful", 
+                                       f"Parameters for '{self.ship.name}' have been updated live!\n\n"
+                                       f"New settings:\n"
+                                       f"• Speed: {self.ship.speed} knots\n"
+                                       f"• Course: {self.ship.course}°\n"
+                                       f"• Position: {self.ship.lat:.4f}, {self.ship.lon:.4f}\n"
+                                       f"• Status: {self.ship.status}\n\n"
+                                       f"Changes are now active in the simulation.")
                 else:
-                    self.ship.current_waypoint = -1  # No waypoints
-                
-                # Force save since we modified the ship directly
-                ship_manager.save_ships()
+                    # Regular update message for non-simulated ships
+                    messagebox.showinfo("Ship Updated", f"Ship '{self.ship.name}' has been updated successfully.")
             else:
                 # Create new ship
                 new_ship = AISShip(
@@ -754,6 +842,38 @@ Common Status Values:
     def setup_waypoint_management(self, parent_notebook):
         """Setup waypoint management controls and map integration"""
         pass  # Already handled in create_waypoints_tab
+    
+    def create_simulation_banner(self, parent):
+        """Create a banner showing simulation status"""
+        banner_frame = ttk.Frame(parent, style='SimulationBanner.TFrame')
+        banner_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # Configure banner style
+        style = ttk.Style()
+        if self.simulation_context.get('is_ship_in_simulation'):
+            style.configure('SimulationBanner.TFrame', background='#4CAF50')  # Green for simulated
+            banner_text = "🔴 LIVE SIMULATION - All changes take effect immediately"
+            text_color = 'white'
+            sub_text = "Parameters will update in real-time without stopping the simulation"
+        else:
+            style.configure('SimulationBanner.TFrame', background='#FF9800')  # Orange for not simulated
+            banner_text = "⚠️ SIMULATION RUNNING - This ship is not currently being simulated"
+            text_color = 'white'
+            sub_text = "Changes will be saved but won't affect the running simulation"
+        
+        # Main banner text
+        main_label = ttk.Label(banner_frame, text=banner_text, 
+                              font=('Arial', 14, 'bold'), 
+                              foreground=text_color,
+                              background=style.lookup('SimulationBanner.TFrame', 'background'))
+        main_label.pack(pady=(8, 2))
+        
+        # Sub text
+        sub_label = ttk.Label(banner_frame, text=sub_text, 
+                             font=('Arial', 10), 
+                             foreground=text_color,
+                             background=style.lookup('SimulationBanner.TFrame', 'background'))
+        sub_label.pack(pady=(0, 8))
 
 
 def add_ship_dialog(parent):
@@ -761,6 +881,16 @@ def add_ship_dialog(parent):
     return ShipDialog(parent, "Add New Ship", ship=None)
 
 
-def edit_ship_dialog(parent, ship):
-    """Create edit ship dialog"""
-    return ShipDialog(parent, f"Edit: {ship.name}", ship=ship)
+def edit_ship_dialog(parent, ship, simulation_context=None):
+    """Create edit ship dialog
+    
+    Args:
+        parent: Parent window
+        ship: Ship object to edit
+        simulation_context: Dict with simulation info:
+            - is_simulating: bool
+            - is_ship_in_simulation: bool  
+            - ship_index: int
+            - update_callback: function to call when ship is updated
+    """
+    return ShipDialog(parent, f"Edit: {ship.name}", ship=ship, simulation_context=simulation_context)

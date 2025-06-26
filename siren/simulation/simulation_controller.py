@@ -30,7 +30,8 @@ class SimulationController:
             selected_ship_indices: List of ship indices to simulate. If None, simulates all ships.
         """
         if self.simulation_active:
-            return False
+            # Stop current simulation before starting new one
+            self.stop_simulation()
             
         self.simulation_active = True
         self.simulation_thread = threading.Thread(
@@ -76,16 +77,20 @@ class SimulationController:
         try:
             update_status("Starting AIS ship simulation...")
             
-            # Get ships to simulate
-            if selected_ship_indices:
-                ships = self.ship_manager.get_selected_ships(selected_ship_indices)
-                update_status(f"Simulating {len(ships)} selected ships")
-            else:
-                ships = self.ship_manager.get_ships()
-                selected_ship_indices = list(range(len(ships)))  # All ships
-                update_status(f"Simulating all {len(ships)} ships")
-            
-            while self.simulation_active and ships:
+            while self.simulation_active:
+                # Get fresh ship references each cycle to pick up live updates
+                if selected_ship_indices:
+                    ships = self.ship_manager.get_selected_ships(selected_ship_indices)
+                    if not ships:  # No ships to simulate
+                        update_status("No ships to simulate")
+                        break
+                else:
+                    ships = self.ship_manager.get_ships()
+                    selected_ship_indices = list(range(len(ships)))  # All ships
+                    if not ships:  # No ships available
+                        update_status("No ships available")
+                        break
+                
                 # Calculate elapsed time
                 current_time = datetime.now()
                 elapsed = (current_time - last_move_time).total_seconds()

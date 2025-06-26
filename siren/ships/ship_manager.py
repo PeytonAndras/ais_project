@@ -68,12 +68,15 @@ class ShipManager:
     def update_ship(self, index, ship):
         """Update a ship at given index"""
         if 0 <= index < len(self.ships):
+            print(f"DEBUG: Updating ship {index} with new parameters: speed={ship.speed}, course={ship.course}")
             self.ships[index] = ship
             self.save_ships()
             self._notify_update()
+            print(f"DEBUG: Ship {index} updated and notifications sent")
     
     def get_ships(self):
         """Get all ships"""
+        print(f"DEBUG: get_ships() called, returning {len(self.ships)} ships")
         return self.ships
     
     def get_ship(self, index):
@@ -114,7 +117,9 @@ class ShipManager:
         selected_ships = []
         for index in selected_indices:
             if 0 <= index < len(self.ships):
-                selected_ships.append(self.ships[index])
+                ship = self.ships[index]
+                print(f"DEBUG: get_selected_ships() - Ship {index}: {ship.name}, speed={ship.speed}, course={ship.course}")
+                selected_ships.append(ship)
         return selected_ships
     
     def _notify_update(self):
