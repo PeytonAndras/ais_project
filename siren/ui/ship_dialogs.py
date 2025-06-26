@@ -116,13 +116,13 @@ class ShipDialog:
                 ("Ship Type (0-99):", "ship_type", "70"),
                 ("Length (m):", "length", "100"),
                 ("Beam (m):", "beam", "20"),
-                ("Latitude (°):", "lat", "40.7128"),
-                ("Longitude (°):", "lon", "-74.0060"),
+                ("Latitude (°):", "lat", "39.5"),
+                ("Longitude (°):", "lon", "-9.25"),
                 ("Course (°):", "course", "90"),
                 ("Speed (knots):", "speed", "8"),
                 ("Nav Status (0-15):", "status", "0"),
                 ("Rate of Turn:", "turn", "0"),
-                ("Destination:", "dest", "NEW YORK")
+                ("Destination:", "dest", "LISBON")
             ]
         
         # Create parameter frame for input fields
@@ -163,7 +163,7 @@ class ShipDialog:
                 initial_lat = float(self.vars_dict["lat"].get())
                 initial_lon = float(self.vars_dict["lon"].get())
             except (ValueError, KeyError):
-                initial_lat, initial_lon = 40.7128, -74.0060  # Default to NYC
+                initial_lat, initial_lon = 39.5, -9.25  # Default to Portugal area (same as main map)
             
             self.position_map.set_position(initial_lat, initial_lon)
             self.position_map.set_zoom(10)
@@ -201,8 +201,8 @@ class ShipDialog:
         ttk.Label(preset_frame, text="Quick Locations:").grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
         
         presets = [
-            ("New York Harbor", 40.7128, -74.0060),
-            ("San Francisco Bay", 37.7749, -122.4194),
+            ("Lisbon Port", 38.7078, -9.1365),
+            ("Atlantic Coast", 39.5, -9.25),
             ("English Channel", 50.2500, 1.0000),
             ("Mediterranean", 36.0000, 14.0000)
         ]
