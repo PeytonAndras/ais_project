@@ -85,6 +85,38 @@ class AISMainWindow:
                                           font=('Arial', 10), foreground='gray')
         self.instructions_label.pack(pady=(0, 10))
 
+        # Status legend frame
+        legend_frame = ttk.Frame(ship_list_frame)
+        legend_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        legend_title = ttk.Label(legend_frame, text="Status Legend:", font=('Arial', 9, 'bold'))
+        legend_title.pack(anchor=tk.W)
+        
+        # Create visual examples using colored labels
+        legend_live_frame = ttk.Frame(legend_frame)
+        legend_live_frame.pack(anchor=tk.W, fill=tk.X, pady=2)
+        
+        live_indicator = tk.Label(legend_live_frame, text="[LIVE]", 
+                                 bg='#1B5E20', fg='white', font=('Arial', 9, 'bold'),
+                                 relief=tk.RAISED, padx=3)
+        live_indicator.pack(side=tk.LEFT, padx=(10, 5))
+        
+        live_desc = ttk.Label(legend_live_frame, text="Ships currently being simulated (parameters editable live)", 
+                             font=('Arial', 9))
+        live_desc.pack(side=tk.LEFT)
+        
+        legend_inactive_frame = ttk.Frame(legend_frame)
+        legend_inactive_frame.pack(anchor=tk.W, fill=tk.X, pady=2)
+        
+        inactive_indicator = tk.Label(legend_inactive_frame, text="[----]", 
+                                     bg='#FAFAFA', fg='#424242', font=('Arial', 9),
+                                     relief=tk.SUNKEN, padx=3)
+        inactive_indicator.pack(side=tk.LEFT, padx=(10, 5))
+        
+        inactive_desc = ttk.Label(legend_inactive_frame, text="Ships not in simulation (can be added to simulation)", 
+                                 font=('Arial', 9))
+        inactive_desc.pack(side=tk.LEFT)
+
         # Ship selection listbox with better sizing
         self.ship_listbox = tk.Listbox(ship_list_frame, height=25, selectmode=tk.MULTIPLE, font=('Arial', 12))
         self.ship_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -158,7 +190,7 @@ class AISMainWindow:
         self.sim_log_text.configure(state='disabled')
 
         # Status indicator with larger font
-        self.sim_status_var = tk.StringVar(value="Ready")
+        self.sim_status_var = tk.StringVar(value="READY - Select ships and click Start Simulation")
         status_label = ttk.Label(sim_control_frame, textvariable=self.sim_status_var, font=('Arial', 12, 'bold'))
         status_label.grid(row=5, column=0, columnspan=2, pady=10)
 
@@ -230,7 +262,7 @@ class AISMainWindow:
             stop_simulation()
 
     def update_ship_listbox(self):
-        """Update the ship listbox with current configurations"""
+        """Update the ship listbox with current configurations and visual indicators"""
         if hasattr(self, 'ship_listbox'):
             # Store current selection
             current_selection = list(self.ship_listbox.curselection())
@@ -238,21 +270,42 @@ class AISMainWindow:
             self.ship_listbox.delete(0, tk.END)
             
             ship_configs = get_ship_configs()
+            from ..simulation.simulation_controller import is_simulation_active
+            is_sim_active = is_simulation_active()
+            
             for i, ship in enumerate(ship_configs):
-                # Create display text
-                display_text = f"{ship.name} (MMSI: {ship.mmsi}) - {ship.speed} kts, {ship.course}°"
+                # Check if this ship is in the current simulation
+                is_in_simulation = (is_sim_active and hasattr(self, 'current_selected_indices') 
+                                   and i in self.current_selected_indices)
                 
-                # Add indicator if ship is being simulated
-                from ..simulation.simulation_controller import is_simulation_active
-                if (is_simulation_active() and hasattr(self, 'current_selected_indices') 
-                    and i in self.current_selected_indices):
-                    display_text += " [SIMULATING]"
+                # Create display text with clear visual indicators
+                if is_in_simulation:
+                    # Ships currently being simulated - clear status indicator
+                    display_text = f"[LIVE] {ship.name} (MMSI: {ship.mmsi}) - {ship.speed} kts, {ship.course}°"
+                else:
+                    # Ships not in simulation - standard formatting
+                    display_text = f"[----] {ship.name} (MMSI: {ship.mmsi}) - {ship.speed} kts, {ship.course}°"
                 
                 self.ship_listbox.insert(i, display_text)
+                
+                # Set different colors for simulated vs non-simulated ships
+                if is_in_simulation:
+                    # Ships in simulation: dark green background, white text
+                    self.ship_listbox.itemconfig(i, 
+                                                bg='#1B5E20',  # Dark green
+                                                fg='white',
+                                                selectbackground='#4CAF50',  # Lighter green when selected
+                                                selectforeground='white')
+                else:
+                    # Ships not in simulation: light background, dark text
+                    self.ship_listbox.itemconfig(i, 
+                                                bg='#FAFAFA',  # Very light gray
+                                                fg='#424242',  # Dark gray
+                                                selectbackground='#2196F3',  # Blue when selected
+                                                selectforeground='white')
             
             # Restore selection if ships are being simulated
-            if (hasattr(self, 'current_selected_indices') and 
-                is_simulation_active()):
+            if (hasattr(self, 'current_selected_indices') and is_sim_active):
                 for index in self.current_selected_indices:
                     if index < self.ship_listbox.size():
                         self.ship_listbox.selection_set(index)
@@ -322,17 +375,9 @@ class AISMainWindow:
             self.refresh_ship_display()
     
     def refresh_ship_display(self):
-        """Update the ship display in the UI"""
-        # Clear current listbox
-        self.ship_listbox.delete(0, tk.END)
-        
-        # Reload and display ships
-        from ..ships.ship_manager import get_ship_manager
-        ship_manager = get_ship_manager()
-        ships = ship_manager.get_ships()
-        
-        for i, ship in enumerate(ships):
-            self.ship_listbox.insert(i, f"{ship.name} (MMSI: {ship.mmsi}) - {ship.speed} kts, {ship.course}°")
+        """Update the ship display in the UI with visual indicators"""
+        # Use the main update method which includes all visual formatting
+        self.update_ship_listbox()
         
         # Update map if available
         if hasattr(self, 'map_visualization') and self.map_visualization:
@@ -404,6 +449,24 @@ class AISMainWindow:
         
         if start_simulation(signal_preset, interval, update_sim_log, selected_indices):
             update_sim_log("Simulation started successfully")
+            
+            # Update status with detailed information
+            from ..ships.ship_manager import get_ship_manager
+            ship_manager = get_ship_manager()
+            ships = ship_manager.get_ships()
+            simulated_ship_names = [ships[i].name for i in selected_indices if i < len(ships)]
+            
+            if len(simulated_ship_names) <= 2:
+                # Show names if we have 2 or fewer ships
+                ship_list = ", ".join(simulated_ship_names)
+                self.sim_status_var.set(f"SIMULATION ACTIVE - Live: {ship_list}")
+            else:
+                # Show count if we have many ships
+                self.sim_status_var.set(f"SIMULATION ACTIVE - {len(simulated_ship_names)} ships live")
+            
+            # IMPORTANT: Update the ship listbox to show new visual states
+            self.update_ship_listbox()
+            
             # Start map updates if map is available and set selected ships
             if hasattr(self, 'map_visualization') and self.map_visualization:
                 self.map_visualization.set_selected_ships(selected_indices)
@@ -433,9 +496,12 @@ class AISMainWindow:
                  "During simulation: Double-click ships to add/remove, or Edit to modify parameters live."
         )
         
-        self.sim_status_var.set("Simulation Stopped")
+        self.sim_status_var.set("SIMULATION STOPPED - Ready to start new simulation")
         self.start_sim_btn.config(state=tk.NORMAL)
         self.stop_sim_btn.config(state=tk.DISABLED)
+        
+        # IMPORTANT: Update the ship listbox to clear visual states
+        self.update_ship_listbox()
         
         # Clear simulation state
         if hasattr(self, 'current_signal_preset'):
@@ -524,7 +590,20 @@ class AISMainWindow:
                             self.map_visualization.set_selected_ships(self.current_selected_indices)
                             
                         # Update simulation status
-                        self.sim_status_var.set(f"Simulation Running - {len(self.current_selected_indices)} ships")
+                        # Update status with ship count and names
+                        from ..ships.ship_manager import get_ship_manager
+                        ship_manager = get_ship_manager()
+                        ships = ship_manager.get_ships()
+                        simulated_ship_names = [ships[i].name for i in self.current_selected_indices if i < len(ships)]
+                        
+                        if len(simulated_ship_names) <= 2:
+                            ship_list = ", ".join(simulated_ship_names)
+                            self.sim_status_var.set(f"SIMULATION ACTIVE - Live: {ship_list}")
+                        else:
+                            self.sim_status_var.set(f"SIMULATION ACTIVE - {len(simulated_ship_names)} ships live")
+                        
+                        # IMPORTANT: Update the ship listbox to show new visual states
+                        self.update_ship_listbox()
                 # If No was selected, ship is added but not included in simulation
         
         # Temporarily replace refresh method
@@ -559,6 +638,8 @@ class AISMainWindow:
                         if result:
                             self.current_selected_indices.remove(clicked_index)
                             self._restart_simulation_with_selection()
+                            # Update visual display immediately
+                            self.update_ship_listbox()
                     else:
                         # Add to simulation
                         result = messagebox.askyesno(
@@ -568,6 +649,8 @@ class AISMainWindow:
                         if result:
                             self.current_selected_indices.append(clicked_index)
                             self._restart_simulation_with_selection()
+                            # Update visual display immediately
+                            self.update_ship_listbox()
 
     def update_simulation_selection(self):
         """Update the simulation to use currently selected ships in listbox"""
@@ -590,6 +673,9 @@ class AISMainWindow:
         
         # Restart simulation with new selection
         self._restart_simulation_with_selection()
+        
+        # Update visual display immediately
+        self.update_ship_listbox()
         
         # Show confirmation
         messagebox.showinfo(
@@ -630,7 +716,20 @@ class AISMainWindow:
             self.map_visualization.set_selected_ships(self.current_selected_indices)
             
         # Update simulation status
-        self.sim_status_var.set(f"Simulation Running - {len(self.current_selected_indices)} ships")
+        # Update simulation status display
+        from ..ships.ship_manager import get_ship_manager
+        ship_manager = get_ship_manager()
+        ships = ship_manager.get_ships()
+        simulated_ship_names = [ships[i].name for i in self.current_selected_indices if i < len(ships)]
+        
+        if len(simulated_ship_names) <= 2:
+            ship_list = ", ".join(simulated_ship_names)
+            self.sim_status_var.set(f"SIMULATION ACTIVE - Live: {ship_list}")
+        else:
+            self.sim_status_var.set(f"SIMULATION ACTIVE - {len(simulated_ship_names)} ships live")
+        
+        # Update the ship listbox to reflect new simulation state
+        self.update_ship_listbox()
 
     def _handle_ship_update_during_simulation(self, ship_index, ship):
         """Handle ship parameter updates during simulation"""
@@ -656,7 +755,7 @@ class AISMainWindow:
         
         # Show a brief status update
         old_status = self.sim_status_var.get()
-        self.sim_status_var.set(f"LIVE UPDATE: '{ship.name}' - {ship.speed} kts, {ship.course}°")
+        self.sim_status_var.set(f"LIVE UPDATE: {ship.name} - {ship.speed} kts, {ship.course}°")
         
         # Restore the normal status after 3 seconds
         self.root.after(3000, lambda: self.sim_status_var.set(old_status) if hasattr(self, 'sim_status_var') else None)
