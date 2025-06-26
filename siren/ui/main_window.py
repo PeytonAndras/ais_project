@@ -257,9 +257,9 @@ class AISMainWindow:
                 ship_manager.remove_ship_by_index(index)
             
             ship_manager.save_configs()
-            self.update_ship_display()
+            self.refresh_ship_display()
     
-    def update_ship_display(self):
+    def refresh_ship_display(self):
         """Update the ship display in the UI"""
         # Clear current listbox
         self.ship_listbox.delete(0, tk.END)

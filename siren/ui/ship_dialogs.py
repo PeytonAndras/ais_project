@@ -687,8 +687,8 @@ Common Status Values:
             self.dialog.destroy()
             
             # Notify parent to update displays
-            if hasattr(self.parent, 'update_ship_display'):
-                self.parent.update_ship_display()
+            if hasattr(self.parent, 'refresh_ship_display'):
+                self.parent.refresh_ship_display()
             
         except ValueError as e:
             messagebox.showerror("Invalid Input", str(e))

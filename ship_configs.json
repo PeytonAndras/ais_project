@@ -193,5 +193,29 @@
     "waypoints": [],
     "current_waypoint": -1,
     "waypoint_radius": 0.01
+  },
+  {
+    "name": "Vessel 1",
+    "mmsi": 366000001,
+    "ship_type": 70,
+    "length": 100.0,
+    "beam": 20.0,
+    "lat": 40.544476,
+    "lon": -73.979221,
+    "course": 69.00745166848941,
+    "speed": 8.0,
+    "status": 0,
+    "turn": 0,
+    "destination": "NEW YORK",
+    "accuracy": 1,
+    "heading": 69,
+    "waypoints": [
+      [
+        39.440103,
+        -9.329651
+      ]
+    ],
+    "current_waypoint": 0,
+    "waypoint_radius": 0.01
   }
 ]
