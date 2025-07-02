@@ -63,19 +63,19 @@ def build_position_report_pyais(fields):
     """Build AIS position report (Types 1, 2, 3) using pyais"""
     msg_type = fields.get('msg_type', 1)
     
-    # Map fields to pyais format
+    # Map fields to pyais format - ensure numeric values are integers
     msg_data = {
         'msg_type': msg_type,
         'repeat': fields.get('repeat', 0),
-        'mmsi': fields['mmsi'],
+        'mmsi': int(fields['mmsi']),
         'status': fields.get('nav_status', 0),
-        'turn': fields.get('rot', 0),
-        'speed': fields['sog'],
+        'turn': int(fields.get('rot', 0)),
+        'speed': int(round(fields['sog'] * 10)),  # Speed in 0.1 knot units, convert float to int
         'accuracy': fields.get('accuracy', 1),
-        'lon': fields['lon'],
-        'lat': fields['lat'],
-        'course': fields['cog'],
-        'heading': fields.get('hdg', 511),
+        'lon': fields['lon'],  # Keep as float for pyais
+        'lat': fields['lat'],   # Keep as float for pyais
+        'course': int(round(fields['cog'] * 10)),  # Course in 0.1 degree units, convert float to int
+        'heading': int(fields.get('hdg', 511)),
         'second': int(fields.get('timestamp', 60)),
         'maneuver': 0,  # Not used in SIREN
         'spare_1': 0,
@@ -182,14 +182,14 @@ def build_class_b_position_report_pyais(fields):
     msg_data = {
         'msg_type': 18,
         'repeat': fields.get('repeat', 0),
-        'mmsi': fields['mmsi'],
+        'mmsi': int(fields['mmsi']),
         'reserved_1': 0,
-        'speed': fields['sog'],
+        'speed': int(round(fields['sog'] * 10)),  # Speed in 0.1 knot units, convert float to int
         'accuracy': fields.get('accuracy', 1),
-        'lon': fields['lon'],
-        'lat': fields['lat'],
-        'course': fields['cog'],
-        'heading': fields.get('hdg', 511),
+        'lon': fields['lon'],  # Keep as float for pyais
+        'lat': fields['lat'],   # Keep as float for pyais
+        'course': int(round(fields['cog'] * 10)),  # Course in 0.1 degree units, convert float to int
+        'heading': int(fields.get('hdg', 511)),
         'second': int(fields.get('timestamp', 60)),
         'reserved_2': 0,
         'cs': fields.get('cs_unit', 1),

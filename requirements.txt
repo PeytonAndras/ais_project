@@ -7,6 +7,9 @@ SoapySDR>=0.8.0
 # AIS protocol support (now using pyais)
 pyais>=2.6.0
 
+# GNU Radio integration
+websocket-client>=1.3.0
+
 # Optional dependencies for enhanced functionality
 scipy>=1.7.0
 matplotlib>=3.5.0

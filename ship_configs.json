@@ -193,5 +193,37 @@
     "waypoints": [],
     "current_waypoint": -1,
     "waypoint_radius": 0.01
+  },
+  {
+    "name": "Vessel 1",
+    "mmsi": 366000001,
+    "ship_type": 70,
+    "length": 100.0,
+    "beam": 20.0,
+    "lat": 39.494172,
+    "lon": -9.256148,
+    "course": 309.28985977147624,
+    "speed": 8.0,
+    "status": 0,
+    "turn": 0,
+    "destination": "LISBON",
+    "accuracy": 1,
+    "heading": 309,
+    "waypoints": [
+      [
+        39.541392,
+        -9.331024
+      ],
+      [
+        39.691034,
+        -9.277288
+      ],
+      [
+        39.747018,
+        -9.470922
+      ]
+    ],
+    "current_waypoint": 0,
+    "waypoint_radius": 0.01
   }
 ]

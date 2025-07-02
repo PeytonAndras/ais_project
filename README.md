@@ -4,12 +4,29 @@
 
 **SIREN** is a comprehensive Automatic Identification System (AIS) simulation and transmission platform designed for maritime training, research, and cybersecurity applications. The system provides real-time ship simulation, AIS message generation, and SDR-based transmission capabilities with both online and offline mapping support.
 
+### 🔧 Transmission Methods
+
+SIREN now supports **two proven transmission methods**:
+
+1. **GNU Radio (Recommended)** - Uses the same reliable transmission pipeline as `ais-simulator.py`
+   - Based on GNU Radio flowgraph with GMSK modulation
+   - Proven compatibility with `rtl_ais` and commercial AIS receivers
+   - Automatic message injection via WebSocket interface
+   - Superior signal quality and timing accuracy
+
+2. **SoapySDR (Fallback)** - Direct SoapySDR implementation
+   - Compatible with LimeSDR, HackRF, USRP, and other devices
+   - Lower-level control and configuration options
+
+The GNU Radio method has been thoroughly tested and provides the most reliable AIS transmissions. SIREN automatically detects available methods and allows you to choose in the GUI.
+
 ---
 
 ## 🚢 Key Features
 
 ### Core Capabilities
 - **Real-Time AIS Simulation**: Simulate multiple ships with realistic movement patterns and physics
+- **GNU Radio Transmission**: Proven reliable AIS transmission using the same method as `ais-simulator.py`
 - **SDR Transmission**: Broadcast standards-compliant AIS messages using Software Defined Radio
 - **Interactive Mapping**: Support for both online maps (tkintermapview) and custom nautical charts
 - **Waypoint Navigation**: Ships follow predefined routes with automatic course corrections and collision avoidance
@@ -49,8 +66,17 @@
 sudo apt-get update
 sudo apt-get install python3-pip python3-venv git build-essential cmake
 
+# For GNU Radio transmission (recommended)
+./setup_gnuradio.sh
+
+# Or install manually:
+sudo apt-get install gnuradio gr-osmosdr
+# Note: gr-ais may need to be built from source
+
 # macOS (requires Homebrew)
 brew install python3 git cmake
+# For GNU Radio on macOS:
+brew install gnuradio gr-osmosdr
 
 # Windows: Install Python 3.8+ from python.org and Git
 ```
@@ -88,7 +114,19 @@ brew install soapysdr
 
 ### 2. First Launch & Basic Usage
 
-#### Start SIREN
+#### Start SIREN with GNU Radio Integration
+```bash
+# Launch SIREN with full GNU Radio support
+python siren_with_gnuradio.py
+
+# Or test the integration first
+python test_gnuradio_integration.py
+
+# Test transmission functionality
+python test_gnuradio_integration.py --transmission-test
+```
+
+#### Start SIREN (Standard)
 ```bash
 python ais_main_modular.py
 ```

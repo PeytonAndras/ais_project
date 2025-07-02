@@ -14,6 +14,7 @@ from datetime import datetime
 # Import modules from our package
 from ..ships.ship_manager import get_ship_configs, update_ship_listbox_callback
 from ..transmission.sdr_controller import get_signal_presets
+from ..transmission.siren_gnuradio_integration import SIRENGnuRadioTransmitter
 from ..simulation.simulation_controller import start_simulation, stop_simulation
 from ..config.settings import check_dependencies
 
@@ -163,30 +164,61 @@ class AISMainWindow:
         # Configure internal grid
         sim_control_frame.columnconfigure(1, weight=1)
 
+        # Transmission method selection
+        ttk.Label(sim_control_frame, text="Transmission Method:", font=('Arial', 12)).grid(row=0, column=0, sticky=tk.W, pady=8)
+        self.transmission_method_var = tk.StringVar(value="GNU Radio")
+        
+        # Check what transmission methods are available
+        transmission_methods = []
+        try:
+            from ..transmission.gnuradio_transmitter import GnuRadioAISTransmitter
+            if GnuRadioAISTransmitter.is_available():
+                transmission_methods.append("GNU Radio")
+        except ImportError:
+            pass
+            
+        try:
+            from ..transmission.sdr_controller import TransmissionController
+            controller = TransmissionController()
+            if controller.is_available():
+                transmission_methods.append("SoapySDR")
+        except ImportError:
+            pass
+            
+        if not transmission_methods:
+            transmission_methods = ["No Transmission Available"]
+            
+        transmission_combo = ttk.Combobox(sim_control_frame, textvariable=self.transmission_method_var, 
+                                         values=transmission_methods, font=('Arial', 12))
+        transmission_combo.grid(row=0, column=1, sticky=(tk.W, tk.E), pady=8, padx=(10, 0))
+        
+        # Bind change event to update status
+        transmission_combo.bind('<<ComboboxSelected>>', self.on_transmission_method_changed)
+
         # Channel selection with larger fonts
-        ttk.Label(sim_control_frame, text="AIS Channel:", font=('Arial', 12)).grid(row=0, column=0, sticky=tk.W, pady=8)
+        ttk.Label(sim_control_frame, text="AIS Channel:", font=('Arial', 12)).grid(row=1, column=0, sticky=tk.W, pady=8)
         self.sim_channel_var = tk.StringVar(value="0")
         channel_combo = ttk.Combobox(sim_control_frame, textvariable=self.sim_channel_var, 
                      values=["0", "1"], font=('Arial', 12))
-        channel_combo.grid(row=0, column=1, sticky=(tk.W, tk.E), pady=8, padx=(10, 0))
+        channel_combo.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=8, padx=(10, 0))
 
         # Interval setting
-        ttk.Label(sim_control_frame, text="Interval (seconds):", font=('Arial', 12)).grid(row=1, column=0, sticky=tk.W, pady=8)
+        ttk.Label(sim_control_frame, text="Interval (seconds):", font=('Arial', 12)).grid(row=2, column=0, sticky=tk.W, pady=8)
         self.sim_interval_var = tk.StringVar(value="10")
         interval_entry = ttk.Entry(sim_control_frame, textvariable=self.sim_interval_var, font=('Arial', 12))
-        interval_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=8, padx=(10, 0))
+        interval_entry.grid(row=2, column=1, sticky=(tk.W, tk.E), pady=8, padx=(10, 0))
 
         # Start/Stop buttons with better styling
         self.start_sim_btn = ttk.Button(sim_control_frame, text="Start Simulation", command=self.start_ship_simulation)
-        self.start_sim_btn.grid(row=2, column=0, columnspan=2, pady=15, ipadx=20, ipady=8, sticky=(tk.W, tk.E))
+        self.start_sim_btn.grid(row=3, column=0, columnspan=2, pady=15, ipadx=20, ipady=8, sticky=(tk.W, tk.E))
 
         self.stop_sim_btn = ttk.Button(sim_control_frame, text="Stop Simulation", command=self.stop_ship_simulation)
-        self.stop_sim_btn.grid(row=3, column=0, columnspan=2, pady=10, ipadx=20, ipady=8, sticky=(tk.W, tk.E))
+        self.stop_sim_btn.grid(row=4, column=0, columnspan=2, pady=10, ipadx=20, ipady=8, sticky=(tk.W, tk.E))
         self.stop_sim_btn.config(state=tk.DISABLED)
 
         # Simulation log with better sizing
         sim_log_frame = ttk.LabelFrame(sim_control_frame, text="Simulation Log", padding=15)
-        sim_log_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=15)
+        sim_log_frame.grid(row=5, column=0, columnspan=2, sticky=(tk.W, tk.E, tk.N, tk.S), pady=15)
 
         self.sim_log_text = scrolledtext.ScrolledText(sim_log_frame, wrap=tk.WORD, width=50, height=15, font=('Consolas', 11))
         self.sim_log_text.pack(fill=tk.BOTH, expand=True)
@@ -195,7 +227,7 @@ class AISMainWindow:
         # Status indicator with larger font
         self.sim_status_var = tk.StringVar(value="READY - Select ships and click Start Simulation")
         status_label = ttk.Label(sim_control_frame, textvariable=self.sim_status_var, font=('Arial', 12, 'bold'))
-        status_label.grid(row=5, column=0, columnspan=2, pady=10)
+        status_label.grid(row=6, column=0, columnspan=2, pady=10)
 
         # Update ship listbox initially
         self.update_ship_listbox()
@@ -444,14 +476,17 @@ class AISMainWindow:
             self.stop_ship_simulation()
             return
         
+        # Get transmission method
+        transmission_method = self.transmission_method_var.get()
+        
         # Store the current simulation parameters for adding ships later
         self.current_signal_preset = signal_preset
         self.current_interval = interval
         self.current_update_callback = update_sim_log
         self.current_selected_indices = selected_indices.copy()
         
-        if start_simulation(signal_preset, interval, update_sim_log, selected_indices):
-            update_sim_log("Simulation started successfully")
+        if start_simulation(signal_preset, interval, update_sim_log, selected_indices, transmission_method):
+            update_sim_log(f"Simulation started successfully using {transmission_method}")
             
             # Update status with detailed information
             from ..ships.ship_manager import get_ship_manager
@@ -462,10 +497,10 @@ class AISMainWindow:
             if len(simulated_ship_names) <= 2:
                 # Show names if we have 2 or fewer ships
                 ship_list = ", ".join(simulated_ship_names)
-                self.sim_status_var.set(f"SIMULATION ACTIVE - Live: {ship_list}")
+                self.sim_status_var.set(f"SIMULATION ACTIVE ({transmission_method}) - Live: {ship_list}")
             else:
                 # Show count if we have many ships
-                self.sim_status_var.set(f"SIMULATION ACTIVE - {len(simulated_ship_names)} ships live")
+                self.sim_status_var.set(f"SIMULATION ACTIVE ({transmission_method}) - {len(simulated_ship_names)} ships live")
             
             # IMPORTANT: Update the ship listbox to show new visual states
             self.update_ship_listbox()
@@ -580,12 +615,14 @@ class AISMainWindow:
                         if hasattr(self, 'current_update_callback'):
                             self.current_update_callback(f"Added '{new_ship.name}' to simulation. Now simulating {len(self.current_selected_indices)} ships.")
                         
-                        # Restart with updated selection
+                        # Restart with updated selection and current transmission method
+                        transmission_method = self.transmission_method_var.get() if hasattr(self, 'transmission_method_var') else "SoapySDR"
                         start_simulation(
                             self.current_signal_preset, 
                             self.current_interval, 
                             self.current_update_callback, 
-                            self.current_selected_indices
+                            self.current_selected_indices,
+                            transmission_method
                         )
                         
                         # Update map visualization
@@ -601,9 +638,9 @@ class AISMainWindow:
                         
                         if len(simulated_ship_names) <= 2:
                             ship_list = ", ".join(simulated_ship_names)
-                            self.sim_status_var.set(f"SIMULATION ACTIVE - Live: {ship_list}")
+                            self.sim_status_var.set(f"SIMULATION ACTIVE ({transmission_method}) - Live: {ship_list}")
                         else:
-                            self.sim_status_var.set(f"SIMULATION ACTIVE - {len(simulated_ship_names)} ships live")
+                            self.sim_status_var.set(f"SIMULATION ACTIVE ({transmission_method}) - {len(simulated_ship_names)} ships live")
                         
                         # IMPORTANT: Update the ship listbox to show new visual states
                         self.update_ship_listbox()
@@ -706,12 +743,14 @@ class AISMainWindow:
         if hasattr(self, 'current_update_callback'):
             self.current_update_callback(f"Simulation updated - now simulating {len(self.current_selected_indices)} ships.")
         
-        # Restart with updated selection
+        # Restart with updated selection and current transmission method
+        transmission_method = self.transmission_method_var.get() if hasattr(self, 'transmission_method_var') else "SoapySDR"
         start_simulation(
             self.current_signal_preset, 
             self.current_interval, 
             self.current_update_callback, 
-            self.current_selected_indices
+            self.current_selected_indices,
+            transmission_method
         )
         
         # Update map visualization
@@ -727,9 +766,11 @@ class AISMainWindow:
         
         if len(simulated_ship_names) <= 2:
             ship_list = ", ".join(simulated_ship_names)
-            self.sim_status_var.set(f"SIMULATION ACTIVE - Live: {ship_list}")
+            transmission_method = self.transmission_method_var.get() if hasattr(self, 'transmission_method_var') else "SoapySDR"
+            self.sim_status_var.set(f"SIMULATION ACTIVE ({transmission_method}) - Live: {ship_list}")
         else:
-            self.sim_status_var.set(f"SIMULATION ACTIVE - {len(simulated_ship_names)} ships live")
+            transmission_method = self.transmission_method_var.get() if hasattr(self, 'transmission_method_var') else "SoapySDR"
+            self.sim_status_var.set(f"SIMULATION ACTIVE ({transmission_method}) - {len(simulated_ship_names)} ships live")
         
         # Update the ship listbox to reflect new simulation state
         self.update_ship_listbox()
@@ -797,3 +838,32 @@ class AISMainWindow:
                 self.map_visualization.center_map_on_ships()
         except Exception as e:
             print(f"DEBUG: Error centering map on ships: {e}")
+
+    def on_transmission_method_changed(self, event=None):
+        """Handle transmission method selection change"""
+        method = self.transmission_method_var.get()
+        
+        # Update status to reflect current transmission method
+        if method == "GNU Radio":
+            try:
+                from ..transmission.gnuradio_transmitter import GnuRadioAISTransmitter
+                if GnuRadioAISTransmitter.is_available():
+                    status = "GNU Radio transmission method selected"
+                else:
+                    status = "GNU Radio not available - check installation"
+            except ImportError:
+                status = "GNU Radio not available - module not found"
+        elif method == "SoapySDR":
+            try:
+                from ..transmission.sdr_controller import TransmissionController
+                controller = TransmissionController()
+                if controller.is_available():
+                    status = "SoapySDR transmission method selected"
+                else:
+                    status = "SoapySDR not available - check installation"
+            except ImportError:
+                status = "SoapySDR not available - module not found"
+        else:
+            status = "No transmission method available"
+            
+        self.status_var.set(status)

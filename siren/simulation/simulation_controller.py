@@ -14,13 +14,40 @@ from ..transmission.sdr_controller import TransmissionController
 class SimulationController:
     """Controls the ship simulation and AIS transmission"""
     
-    def __init__(self, ship_manager):
+    def __init__(self, ship_manager, transmission_method="SoapySDR"):
         self.ship_manager = ship_manager
-        self.transmission_controller = TransmissionController()
+        self.transmission_method = transmission_method
+        self.transmission_controller = None
+        self.gnuradio_controller = None
         self.simulation_active = False
         self.simulation_thread = None
         
-    def start_simulation(self, signal_preset, interval=10, update_status_callback=None, selected_ship_indices=None):
+        # Initialize the appropriate transmission controller
+        self._init_transmission_controller()
+        
+    def _init_transmission_controller(self):
+        """Initialize the appropriate transmission controller based on method"""
+        if self.transmission_method == "GNU Radio":
+            try:
+                from ..transmission.siren_gnuradio_integration import SIRENGnuRadioTransmitter
+                self.gnuradio_controller = SIRENGnuRadioTransmitter(use_gnuradio=True)
+                print(f"Initialized GNU Radio transmission controller")
+            except Exception as e:
+                print(f"Failed to initialize GNU Radio controller: {e}")
+                # Fallback to SoapySDR
+                self.transmission_method = "SoapySDR"
+                self.transmission_controller = TransmissionController()
+        else:
+            # Default to SoapySDR
+            self.transmission_controller = TransmissionController()
+            
+    def set_transmission_method(self, method):
+        """Change the transmission method"""
+        if method != self.transmission_method:
+            self.transmission_method = method
+            self._init_transmission_controller()
+        
+    def start_simulation(self, signal_preset, interval=10, update_status_callback=None, selected_ship_indices=None, transmission_method="SoapySDR"):
         """Start the ship simulation
         
         Args:
@@ -28,10 +55,15 @@ class SimulationController:
             interval: Time between simulation cycles
             update_status_callback: Callback for status updates
             selected_ship_indices: List of ship indices to simulate. If None, simulates all ships.
+            transmission_method: Either "GNU Radio" or "SoapySDR"
         """
         if self.simulation_active:
             # Stop current simulation before starting new one
             self.stop_simulation()
+            
+        # Set transmission method if different
+        if transmission_method != self.transmission_method:
+            self.set_transmission_method(transmission_method)
             
         self.simulation_active = True
         self.simulation_thread = threading.Thread(
@@ -116,10 +148,20 @@ class SimulationController:
                     cs = compute_checksum(sentence)
                     full_sentence = f"!{sentence}*{cs}"
                     
-                    update_status(f"Transmitting ship {i+1}/{len(ships)}: {ship.name} (MMSI: {ship.mmsi})")
+                    update_status(f"Transmitting ship {i+1}/{len(ships)}: {ship.name} (MMSI: {ship.mmsi}) via {self.transmission_method}")
                     
-                    # Transmit
-                    self.transmission_controller.transmit_signal(signal_preset, full_sentence, update_status)
+                    # Transmit using the appropriate controller
+                    if self.transmission_method == "GNU Radio" and self.gnuradio_controller:
+                        try:
+                            success = self.gnuradio_controller.transmit_ship(ship)
+                            if not success:
+                                update_status(f"GNU Radio transmission failed for {ship.name}")
+                        except Exception as e:
+                            update_status(f"GNU Radio error for {ship.name}: {e}")
+                    else:
+                        # Use SoapySDR controller
+                        if self.transmission_controller:
+                            self.transmission_controller.transmit_signal(signal_preset, full_sentence, update_status)
                     
                     # Delay between ships
                     time.sleep(0.5)
@@ -151,7 +193,7 @@ def get_simulation_controller():
         _simulation_controller = SimulationController(get_ship_manager())
     return _simulation_controller
 
-def start_simulation(signal_preset, interval=10, update_status_callback=None, selected_ship_indices=None):
+def start_simulation(signal_preset, interval=10, update_status_callback=None, selected_ship_indices=None, transmission_method="SoapySDR"):
     """Start the ship simulation
     
     Args:
@@ -159,10 +201,11 @@ def start_simulation(signal_preset, interval=10, update_status_callback=None, se
         interval: Time between simulation cycles
         update_status_callback: Callback for status updates
         selected_ship_indices: List of ship indices to simulate. If None, simulates all ships.
+        transmission_method: Either "GNU Radio" or "SoapySDR"
     """
     global _ship_simulation_active
     controller = get_simulation_controller()
-    success = controller.start_simulation(signal_preset, interval, update_status_callback, selected_ship_indices)
+    success = controller.start_simulation(signal_preset, interval, update_status_callback, selected_ship_indices, transmission_method)
     if success:
         _ship_simulation_active = True
     return success
