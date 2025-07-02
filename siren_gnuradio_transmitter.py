@@ -167,31 +167,66 @@ class SIRENAISMessageSender:
             return False
         
         try:
-            # Extract payload from NMEA sentence
-            # NMEA format: !AIVDM,1,1,,A,payload,fill*checksum
-            parts = nmea_sentence.split(',')
-            if len(parts) >= 6:
-                payload = parts[5]
+            # Import payload conversion if SIREN is available
+            if SIREN_AVAILABLE:
+                from siren.protocol.ais_encoding import payload_to_bitstring, extract_payload_from_nmea
                 
-                # Create message for GNU Radio (mimics ais-simulator web interface)
-                message_data = {
-                    "type": "ais_message",
-                    "payload": payload,
-                    "nmea": nmea_sentence,
-                    "ship": ship_name
-                }
+                # Extract payload from NMEA sentence
+                payload, fill_bits = extract_payload_from_nmea(nmea_sentence)
+                if payload is None:
+                    print(f"❌ Failed to extract payload from NMEA: {nmea_sentence}")
+                    return False
                 
-                # Send as JSON to GNU Radio websocket
-                self.ws.send(json.dumps(message_data))
+                # Convert AIS payload to binary bit string
+                bit_string = payload_to_bitstring(payload)
+                if not bit_string:
+                    print(f"❌ Failed to convert payload to bit string: {payload}")
+                    return False
+                
+                # Send raw binary bit string to GNU Radio (matches ais-simulator)
+                self.ws.send(bit_string)
                 
                 self.packets_sent += 1
                 print(f"📡 Transmitted AIS message for {ship_name} (packet #{self.packets_sent})")
                 print(f"🔧 NMEA: {nmea_sentence}")
+                print(f"🔧 Payload: {payload}")
+                print(f"🔧 Bit string ({len(bit_string)} bits): {bit_string[:50]}{'...' if len(bit_string) > 50 else ''}")
                 
                 return True
             else:
-                print(f"❌ Invalid NMEA sentence format: {nmea_sentence}")
-                return False
+                # Fallback: manual payload extraction (basic implementation)
+                parts = nmea_sentence.split(',')
+                if len(parts) >= 6:
+                    payload = parts[5]
+                    
+                    # Simple 6-bit ASCII to binary conversion (basic fallback)
+                    # Note: This is a simplified version - SIREN has the complete implementation
+                    bit_string = ""
+                    for char in payload:
+                        val = ord(char)
+                        if val >= 48 and val < 88:
+                            val -= 48
+                        elif val >= 96 and val < 128:
+                            val -= 56
+                        else:
+                            continue  # Skip invalid characters
+                        
+                        # Convert to 6 bits
+                        for i in range(5, -1, -1):
+                            bit_string += str((val >> i) & 1)
+                    
+                    # Send raw binary bit string
+                    self.ws.send(bit_string)
+                    
+                    self.packets_sent += 1
+                    print(f"📡 Transmitted AIS message for {ship_name} (packet #{self.packets_sent})")
+                    print(f"🔧 NMEA: {nmea_sentence}")
+                    print(f"🔧 Bit string ({len(bit_string)} bits): {bit_string[:50]}{'...' if len(bit_string) > 50 else ''}")
+                    
+                    return True
+                else:
+                    print(f"❌ Invalid NMEA sentence format: {nmea_sentence}")
+                    return False
                 
         except Exception as e:
             print(f"❌ Failed to send message to GNU Radio: {e}")

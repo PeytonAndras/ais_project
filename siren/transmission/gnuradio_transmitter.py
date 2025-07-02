@@ -233,31 +233,33 @@ class GnuRadioAISTransmitter:
             return False
         
         try:
+            # Import payload conversion function
+            from ..protocol.ais_encoding import payload_to_bitstring, extract_payload_from_nmea
+            
             # Extract payload from NMEA sentence
-            # NMEA format: !AIVDM,1,1,,A,payload,fill*checksum
-            parts = nmea_sentence.split(',')
-            if len(parts) >= 6:
-                payload = parts[5]  # AIS payload
-                
-                # Convert payload to bit string for GNU Radio
-                # This mimics what the original ais-simulator web interface does
-                message_data = {
-                    "type": "ais_message",
-                    "payload": payload,
-                    "nmea": nmea_sentence
-                }
-                
-                # Send as JSON to GNU Radio websocket
-                self.ws.send(json.dumps(message_data))
-                
-                self.packets_sent += 1
-                self.logger.info(f"Transmitted AIS message for {ship_name} (packet #{self.packets_sent})")
-                self.logger.debug(f"NMEA: {nmea_sentence}")
-                
-                return True
-            else:
-                self.logger.error(f"Invalid NMEA sentence format: {nmea_sentence}")
+            payload, fill_bits = extract_payload_from_nmea(nmea_sentence)
+            if payload is None:
+                self.logger.error(f"Failed to extract payload from NMEA sentence: {nmea_sentence}")
                 return False
+            
+            # Convert AIS payload to binary bit string
+            # This matches what the original ais-simulator web interface sends
+            bit_string = payload_to_bitstring(payload)
+            if not bit_string:
+                self.logger.error(f"Failed to convert payload to bit string: {payload}")
+                return False
+            
+            # Send raw binary bit string to GNU Radio websocket
+            # This is what the GNU Radio flowgraph expects (not JSON)
+            self.ws.send(bit_string)
+            
+            self.packets_sent += 1
+            self.logger.info(f"Transmitted AIS message for {ship_name} (packet #{self.packets_sent})")
+            self.logger.debug(f"NMEA: {nmea_sentence}")
+            self.logger.debug(f"Payload: {payload}")
+            self.logger.debug(f"Bit string ({len(bit_string)} bits): {bit_string[:50]}{'...' if len(bit_string) > 50 else ''}")
+            
+            return True
                 
         except Exception as e:
             self.logger.error(f"Failed to send message to GNU Radio: {e}")

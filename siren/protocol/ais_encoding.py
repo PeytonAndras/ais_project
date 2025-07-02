@@ -310,3 +310,58 @@ def validate_ais_message(nmea_sentence):
         return True, decoded
     except Exception as e:
         return False, str(e)
+
+def payload_to_bitstring(payload):
+    """Convert AIS 6-bit ASCII payload to binary bit string for GNU Radio
+    
+    This converts the AIS payload (6-bit ASCII characters) to a raw binary
+    bit string that can be sent directly to the GNU Radio websocket interface.
+    
+    Args:
+        payload: AIS payload string (6-bit ASCII encoded)
+        
+    Returns:
+        Binary bit string (e.g., "010010101100111000101...")
+    """
+    if not payload:
+        return ""
+    
+    bit_string = ""
+    for char in payload:
+        try:
+            # Convert each 6-bit ASCII character to 6 bits
+            bits = char_to_sixbit(char)
+            # Convert bit array to string
+            bit_string += ''.join(str(bit) for bit in bits)
+        except ValueError as e:
+            print(f"Warning: Invalid AIS character '{char}' in payload: {e}")
+            # Skip invalid characters
+            continue
+    
+    return bit_string
+
+def extract_payload_from_nmea(nmea_sentence):
+    """Extract AIS payload from NMEA sentence
+    
+    Args:
+        nmea_sentence: Complete NMEA sentence (e.g., "!AIVDM,1,1,,A,payload,fill*checksum")
+        
+    Returns:
+        tuple: (payload, fill_bits) or (None, None) if invalid
+    """
+    try:
+        # Remove leading ! and trailing checksum
+        if nmea_sentence.startswith('!'):
+            sentence_part = nmea_sentence[1:].split('*')[0]
+        else:
+            sentence_part = nmea_sentence.split('*')[0]
+        
+        parts = sentence_part.split(',')
+        if len(parts) >= 6:
+            payload = parts[5]
+            fill_bits = int(parts[6]) if len(parts) > 6 and parts[6].isdigit() else 0
+            return payload, fill_bits
+        else:
+            return None, None
+    except Exception:
+        return None, None
