@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="./assets/noty.css" />
     <link rel="stylesheet" href="./assets/bootstrap-v4.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
       .siren-header {
         background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
@@ -72,6 +73,47 @@
         background: linear-gradient(135deg, #2a5298 0%, #1e3c72 100%);
         color: white;
       }
+      
+      /* Map-specific styles */
+      .map-container {
+        height: 500px;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      
+      .ship-marker {
+        width: 24px;
+        height: 24px;
+        background: #007bff;
+        border: 2px solid white;
+        border-radius: 50% 50% 50% 0;
+        transform: rotate(-45deg);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+      }
+      
+      .ship-marker.selected {
+        background: #dc3545;
+        width: 28px;
+        height: 28px;
+      }
+      
+      .ship-popup {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      }
+      
+      .track-line {
+        stroke-width: 2;
+        stroke-opacity: 0.7;
+        fill: none;
+      }
+      
+      #shipMap {
+        z-index: 1;
+      }
+      
+      .leaflet-container {
+        font-family: inherit;
+      }
     </style>
   </head>
   <body>
@@ -101,13 +143,13 @@
           </button>
         </li>
         <li class="nav-item" role="presentation">
-          <button class="nav-link" id="messages-tab" data-bs-toggle="tab" data-bs-target="#messages" type="button" role="tab">
-            <i class="fas fa-envelope"></i> Manual Messages
+          <button class="nav-link" id="scenarios-tab" data-bs-toggle="tab" data-bs-target="#scenarios" type="button" role="tab">
+            <i class="fas fa-map"></i> Scenarios
           </button>
         </li>
         <li class="nav-item" role="presentation">
-          <button class="nav-link" id="scenarios-tab" data-bs-toggle="tab" data-bs-target="#scenarios" type="button" role="tab">
-            <i class="fas fa-map"></i> Scenarios
+          <button class="nav-link" id="map-tab" data-bs-toggle="tab" data-bs-target="#map" type="button" role="tab">
+            <i class="fas fa-globe"></i> Live Map
           </button>
         </li>
       </ul>
@@ -271,26 +313,6 @@
           </div>
         </div>
 
-        <!-- Manual Messages Tab (Original AIS Simulator) -->
-        <div class="tab-pane fade" id="messages" role="tabpanel">
-          <div class="row mt-3">
-            <div class="col-md-12">
-              <div class="card">
-                <div class="card-header">
-                  <h5 class="mb-0"><i class="fas fa-edit"></i> Manual AIS Message Composer</h5>
-                  <small class="text-muted">Original AIS Simulator functionality for custom messages</small>
-                </div>
-                <div class="card-body">
-                  <!-- Original AIS simulator form will go here -->
-                  <div id="originalAISForm">
-                    <!-- This will contain the original ais-simulator form -->
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
         <!-- Scenarios Tab -->
         <div class="tab-pane fade" id="scenarios" role="tabpanel">
           <div class="row mt-3">
@@ -378,6 +400,162 @@
           </div>
         </div>
 
+        <!-- Live Map Tab -->
+        <div class="tab-pane fade" id="map" role="tabpanel">
+          <div class="row mt-3">
+            <!-- Map Display -->
+            <div class="col-md-9">
+              <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                  <h5 class="mb-0"><i class="fas fa-globe"></i> Live Ship Tracking Map</h5>
+                  <div class="btn-group" role="group">
+                    <button class="btn btn-sm btn-outline-primary" id="centerMapBtn">
+                      <i class="fas fa-crosshairs"></i> Center on Ships
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" id="refreshMapBtn">
+                      <i class="fas fa-sync"></i> Refresh
+                    </button>
+                    <button class="btn btn-sm btn-outline-info" id="toggleTracksBtn">
+                      <i class="fas fa-route"></i> Toggle Tracks
+                    </button>
+                    <button class="btn btn-sm btn-outline-success" id="fullscreenMapBtn">
+                      <i class="fas fa-expand"></i> Fullscreen
+                    </button>
+                  </div>
+                </div>
+                <div class="card-body p-0">
+                  <!-- Map Container -->
+                  <div id="shipMap" style="height: 500px; position: relative;">
+                    <!-- Map will be initialized here -->
+                  </div>
+                  
+                  <!-- Map Overlay Information -->
+                  <div class="position-absolute bottom-0 start-0 m-3 bg-white bg-opacity-90 p-2 rounded shadow-sm" style="z-index: 1000;">
+                    <small class="d-block"><i class="fas fa-ship text-primary"></i> <span id="activeShipsCount">0</span> Active Ships</small>
+                    <small class="d-block"><i class="fas fa-route text-info"></i> <span id="tracksCount">0</span> Ship Tracks</small>
+                    <small class="d-block"><i class="fas fa-map-marker-alt text-success"></i> <span id="waypointsCount">0</span> Waypoints</small>
+                  </div>
+                  
+                  <!-- Coordinates Display -->
+                  <div class="position-absolute bottom-0 end-0 m-3 bg-dark text-white p-2 rounded" style="z-index: 1000; font-family: monospace; font-size: 11px;">
+                    <span id="mouseCoords">Lat: ---, Lon: ---</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Map Controls Panel -->
+            <div class="col-md-3">
+              <div class="card">
+                <div class="card-header">
+                  <h6 class="mb-0"><i class="fas fa-sliders-h"></i> Map Controls</h6>
+                </div>
+                <div class="card-body">
+                  <!-- Map Type Selection -->
+                  <div class="mb-3">
+                    <label for="mapTypeSelect" class="form-label">Map Type</label>
+                    <select class="form-select form-select-sm" id="mapTypeSelect">
+                      <option value="osm">OpenStreetMap</option>
+                      <option value="satellite">Satellite</option>
+                      <option value="terrain">Terrain</option>
+                      <option value="nautical">Nautical Chart</option>
+                    </select>
+                  </div>
+                  
+                  <!-- Search Location -->
+                  <div class="mb-3">
+                    <label for="locationSearch" class="form-label">Search Location</label>
+                    <div class="input-group input-group-sm">
+                      <input type="text" class="form-control" id="locationSearch" placeholder="Enter coordinates or location">
+                      <button class="btn btn-outline-secondary" id="searchLocationBtn">
+                        <i class="fas fa-search"></i>
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <!-- Map Center -->
+                  <div class="mb-3">
+                    <label for="mapCenterInput" class="form-label">Map Center</label>
+                    <input type="text" class="form-control form-control-sm" id="mapCenterInput" 
+                           value="39.5, -9.2" placeholder="lat, lon">
+                  </div>
+                  
+                  <!-- Zoom Level -->
+                  <div class="mb-3">
+                    <label for="mapZoomSlider" class="form-label">Zoom Level: <span id="zoomLevel">8</span></label>
+                    <input type="range" class="form-range" id="mapZoomSlider" min="1" max="18" value="8">
+                  </div>
+                  
+                  <!-- Track Settings -->
+                  <div class="mb-3">
+                    <label class="form-label">Track Settings</label>
+                    <div class="form-check form-check-sm">
+                      <input class="form-check-input" type="checkbox" id="showShipTracks" checked>
+                      <label class="form-check-label" for="showShipTracks">Show Ship Tracks</label>
+                    </div>
+                    <div class="form-check form-check-sm">
+                      <input class="form-check-input" type="checkbox" id="showWaypoints" checked>
+                      <label class="form-check-label" for="showWaypoints">Show Waypoints</label>
+                    </div>
+                    <div class="form-check form-check-sm">
+                      <input class="form-check-input" type="checkbox" id="autoFollowShips">
+                      <label class="form-check-label" for="autoFollowShips">Auto Follow Ships</label>
+                    </div>
+                  </div>
+                  
+                  <!-- Track History -->
+                  <div class="mb-3">
+                    <label for="trackHistorySlider" class="form-label">Track History: <span id="trackHistoryValue">20</span> points</label>
+                    <input type="range" class="form-range" id="trackHistorySlider" min="5" max="100" value="20">
+                  </div>
+                  
+                  <!-- Update Interval -->
+                  <div class="mb-3">
+                    <label for="mapUpdateInterval" class="form-label">Update Interval</label>
+                    <select class="form-select form-select-sm" id="mapUpdateInterval">
+                      <option value="1000">1 second</option>
+                      <option value="5000" selected>5 seconds</option>
+                      <option value="10000">10 seconds</option>
+                      <option value="30000">30 seconds</option>
+                    </select>
+                  </div>
+                  
+                  <!-- Real-time Updates -->
+                  <div class="form-check mb-3">
+                    <input class="form-check-input" type="checkbox" id="realTimeMapUpdates" checked>
+                    <label class="form-check-label" for="realTimeMapUpdates">Real-time Updates</label>
+                  </div>
+                  
+                  <!-- Action Buttons -->
+                  <div class="d-grid gap-2">
+                    <button class="btn btn-primary btn-sm" id="initializeMapBtn">
+                      <i class="fas fa-play"></i> Initialize Map
+                    </button>
+                    <button class="btn btn-secondary btn-sm" id="resetMapViewBtn">
+                      <i class="fas fa-undo"></i> Reset View
+                    </button>
+                    <button class="btn btn-info btn-sm" id="exportMapBtn">
+                      <i class="fas fa-download"></i> Export View
+                    </button>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- Ship Information Panel -->
+              <div class="card mt-3">
+                <div class="card-header">
+                  <h6 class="mb-0"><i class="fas fa-info-circle"></i> Ship Information</h6>
+                </div>
+                <div class="card-body">
+                  <div id="selectedShipInfo">
+                    <p class="text-muted text-center">Click on a ship to view details</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -448,6 +626,7 @@
     <!-- Scripts -->
     <script src="./assets/bootstrap.bundle.min.js"></script>
     <script src="./assets/noty.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="./assets/ais-simulator.js"></script>
     <script src="./assets/siren-webapp.js"></script>
   </body>

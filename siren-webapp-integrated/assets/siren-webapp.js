@@ -23,6 +23,13 @@ class SIRENWebApp {
         this.isConnected = false;
         this.currentShipIndex = -1;
         
+        // Map-related properties
+        this.map = null;
+        this.mapState = null;
+        this.mapLayers = null;
+        this.shipIcon = null;
+        this.selectedShipIcon = null;
+        
         this.init();
     }
 
@@ -52,8 +59,16 @@ class SIRENWebApp {
 
         // Tab switching
         document.addEventListener('shown.bs.tab', (e) => {
-            if (e.target.id === 'messages-tab') {
-                this.loadOriginalAISForm();
+            if (e.target.id === 'map-tab') {
+                // Initialize map when map tab is shown (with delay for DOM)
+                setTimeout(() => {
+                    if (!this.map) {
+                        this.initializeMap();
+                    } else {
+                        // Map exists, just refresh to ensure proper sizing
+                        this.map.invalidateSize();
+                    }
+                }, 100);
             }
         });
     }
@@ -274,6 +289,11 @@ class SIRENWebApp {
         });
 
         this.updateUI();
+        
+        // Update map if initialized
+        if (this.map) {
+            this.updateShipPositions();
+        }
     }
 
     moveShip(ship) {
@@ -520,6 +540,11 @@ class SIRENWebApp {
     updateUI() {
         this.updateShipList();
         this.updateShipSelection();
+        
+        // Update map if initialized
+        if (this.map) {
+            this.updateShipPositions();
+        }
     }
 
     updateShipList() {
@@ -632,31 +657,489 @@ class SIRENWebApp {
     }
 
     // =====================================
-    // ORIGINAL AIS SIMULATOR INTEGRATION
+    // =====================================
+    // INTERACTIVE MAP FUNCTIONALITY
     // =====================================
 
-    loadOriginalAISForm() {
-        // Load the original AIS simulator form into the Messages tab
-        fetch('./ais-simulator.html')
-            .then(response => response.text())
-            .then(html => {
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(html, 'text/html');
-                const form = doc.querySelector('.aisParameterForm');
-                
-                if (form) {
-                    document.getElementById('originalAISForm').innerHTML = form.outerHTML;
-                    // Re-initialize the original AIS simulator functionality
-                    if (typeof aisSimulator !== 'undefined') {
-                        // Initialize original AIS simulator code
-                    }
-                }
+    initializeMap() {
+        // Initialize map if not already done
+        if (!this.map) {
+            this.setupMap();
+        }
+        
+        this.setupMapEventListeners();
+        this.startMapUpdates();
+        this.showNotification('Map initialized successfully', 'success');
+    }
+
+    setupMap() {
+        console.log('Setting up map...');
+        
+        // Check if Leaflet is available
+        if (typeof L === 'undefined') {
+            console.error('Leaflet library not loaded!');
+            this.showNotification('Leaflet library not found', 'error');
+            return;
+        }
+        
+        // Check if map container exists
+        const mapContainer = document.getElementById('shipMap');
+        if (!mapContainer) {
+            console.error('Map container not found!');
+            this.showNotification('Map container not found', 'error');
+            return;
+        }
+        
+        console.log('Map container found, initializing Leaflet map...');
+        
+        // Initialize Leaflet map
+        this.map = L.map('shipMap').setView([39.5, -9.2], 8);
+        
+        // Map state
+        this.mapState = {
+            shipMarkers: new Map(),
+            shipTracks: new Map(),
+            trackLines: new Map(),
+            waypoints: new Map(),
+            updateInterval: null,
+            showTracks: true,
+            showWaypoints: true,
+            autoFollow: false,
+            maxTrackPoints: 20,
+            selectedShip: null
+        };
+
+        // Add different tile layers
+        this.mapLayers = {
+            osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }),
+            satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                attribution: '© Esri'
+            }),
+            terrain: L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenTopoMap contributors'
+            }),
+            nautical: L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+                attribution: '© OpenSeaMap contributors'
             })
-            .catch(error => {
-                console.error('Failed to load original AIS form:', error);
-                document.getElementById('originalAISForm').innerHTML = 
-                    '<p class="text-muted">Failed to load original AIS simulator form</p>';
+        };
+
+        // Set default layer
+        this.mapLayers.osm.addTo(this.map);
+
+        // Add map event listeners
+        this.map.on('click', (e) => this.onMapClick(e));
+        this.map.on('mousemove', (e) => this.updateMouseCoordinates(e));
+        this.map.on('zoomend', () => this.updateZoomDisplay());
+
+        // Create ship icon
+        this.shipIcon = L.divIcon({
+            className: 'ship-marker',
+            html: '<i class="fas fa-ship"></i>',
+            iconSize: [24, 24],
+            iconAnchor: [12, 12]
+        });
+
+        this.selectedShipIcon = L.divIcon({
+            className: 'ship-marker selected',
+            html: '<i class="fas fa-ship"></i>',
+            iconSize: [28, 28],
+            iconAnchor: [14, 14]
+        });
+
+        console.log('Map initialized');
+    }
+
+    setupMapEventListeners() {
+        // Map type selection
+        document.getElementById('mapTypeSelect').addEventListener('change', (e) => {
+            this.changeMapType(e.target.value);
+        });
+
+        // Location search
+        document.getElementById('searchLocationBtn').addEventListener('click', () => {
+            this.searchLocation();
+        });
+        document.getElementById('locationSearch').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') this.searchLocation();
+        });
+
+        // Map controls
+        document.getElementById('centerMapBtn').addEventListener('click', () => this.centerMapOnShips());
+        document.getElementById('refreshMapBtn').addEventListener('click', () => this.refreshMap());
+        document.getElementById('toggleTracksBtn').addEventListener('click', () => this.toggleTracks());
+        document.getElementById('fullscreenMapBtn').addEventListener('click', () => this.toggleFullscreen());
+
+        // Control panel events
+        document.getElementById('mapCenterInput').addEventListener('change', (e) => this.setMapCenter(e.target.value));
+        document.getElementById('mapZoomSlider').addEventListener('input', (e) => this.setMapZoom(e.target.value));
+        document.getElementById('showShipTracks').addEventListener('change', (e) => this.toggleTrackVisibility(e.target.checked));
+        document.getElementById('showWaypoints').addEventListener('change', (e) => this.toggleWaypointVisibility(e.target.checked));
+        document.getElementById('autoFollowShips').addEventListener('change', (e) => this.toggleAutoFollow(e.target.checked));
+        document.getElementById('trackHistorySlider').addEventListener('input', (e) => this.setTrackHistory(e.target.value));
+        document.getElementById('mapUpdateInterval').addEventListener('change', (e) => this.setUpdateInterval(e.target.value));
+        document.getElementById('realTimeMapUpdates').addEventListener('change', (e) => this.toggleRealTimeUpdates(e.target.checked));
+
+        // Action buttons
+        document.getElementById('initializeMapBtn').addEventListener('click', () => this.initializeMap());
+        document.getElementById('resetMapViewBtn').addEventListener('click', () => this.resetMapView());
+        document.getElementById('exportMapBtn').addEventListener('click', () => this.exportMapView());
+    }
+
+    changeMapType(type) {
+        // Remove current layer
+        this.map.eachLayer((layer) => {
+            if (layer instanceof L.TileLayer) {
+                this.map.removeLayer(layer);
+            }
+        });
+
+        // Add new layer
+        if (this.mapLayers[type]) {
+            this.mapLayers[type].addTo(this.map);
+        }
+    }
+
+    searchLocation() {
+        const query = document.getElementById('locationSearch').value.trim();
+        if (!query) return;
+
+        // Check if it's coordinates (lat, lon)
+        const coordMatch = query.match(/^(-?\d+\.?\d*),\s*(-?\d+\.?\d*)$/);
+        if (coordMatch) {
+            const lat = parseFloat(coordMatch[1]);
+            const lon = parseFloat(coordMatch[2]);
+            this.map.setView([lat, lon], 10);
+            this.addSearchMarker(lat, lon, 'Searched Location');
+            return;
+        }
+
+        // For location names, you could integrate with a geocoding service
+        this.showNotification('Use coordinates format: lat, lon (e.g., 39.5, -9.2)', 'info');
+    }
+
+    addSearchMarker(lat, lon, title) {
+        L.marker([lat, lon])
+            .addTo(this.map)
+            .bindPopup(title)
+            .openPopup();
+    }
+
+    centerMapOnShips() {
+        if (this.ships.length === 0) {
+            this.showNotification('No ships to center on', 'warning');
+            return;
+        }
+
+        const bounds = L.latLngBounds();
+        this.ships.forEach(ship => {
+            bounds.extend([ship.lat, ship.lon]);
+        });
+
+        this.map.fitBounds(bounds, { padding: [20, 20] });
+    }
+
+    refreshMap() {
+        this.updateShipPositions();
+        this.showNotification('Map refreshed', 'info');
+    }
+
+    toggleTracks() {
+        this.mapState.showTracks = !this.mapState.showTracks;
+        this.updateTrackVisibility();
+        
+        const button = document.getElementById('toggleTracksBtn');
+        button.innerHTML = this.mapState.showTracks ? 
+            '<i class="fas fa-route"></i> Hide Tracks' : 
+            '<i class="fas fa-route"></i> Show Tracks';
+    }
+
+    toggleFullscreen() {
+        const mapElement = document.getElementById('shipMap');
+        if (!document.fullscreenElement) {
+            mapElement.requestFullscreen().then(() => {
+                setTimeout(() => this.map.invalidateSize(), 100);
             });
+        } else {
+            document.exitFullscreen();
+        }
+    }
+
+    setMapCenter(value) {
+        const match = value.match(/^(-?\d+\.?\d*),\s*(-?\d+\.?\d*)$/);
+        if (match) {
+            const lat = parseFloat(match[1]);
+            const lon = parseFloat(match[2]);
+            this.map.setView([lat, lon]);
+        }
+    }
+
+    setMapZoom(zoom) {
+        this.map.setZoom(parseInt(zoom));
+        document.getElementById('zoomLevel').textContent = zoom;
+    }
+
+    toggleTrackVisibility(show) {
+        this.mapState.showTracks = show;
+        this.updateTrackVisibility();
+    }
+
+    toggleWaypointVisibility(show) {
+        this.mapState.showWaypoints = show;
+        // Implementation for waypoint visibility
+    }
+
+    toggleAutoFollow(enabled) {
+        this.mapState.autoFollow = enabled;
+    }
+
+    setTrackHistory(points) {
+        this.mapState.maxTrackPoints = parseInt(points);
+        document.getElementById('trackHistoryValue').textContent = points;
+        
+        // Trim existing tracks
+        this.mapState.shipTracks.forEach((track, mmsi) => {
+            if (track.length > this.mapState.maxTrackPoints) {
+                this.mapState.shipTracks.set(mmsi, track.slice(-this.mapState.maxTrackPoints));
+            }
+        });
+        this.updateTrackLines();
+    }
+
+    setUpdateInterval(interval) {
+        this.stopMapUpdates();
+        if (document.getElementById('realTimeMapUpdates').checked) {
+            this.startMapUpdates(parseInt(interval));
+        }
+    }
+
+    toggleRealTimeUpdates(enabled) {
+        if (enabled) {
+            const interval = parseInt(document.getElementById('mapUpdateInterval').value);
+            this.startMapUpdates(interval);
+        } else {
+            this.stopMapUpdates();
+        }
+    }
+
+    resetMapView() {
+        this.map.setView([39.5, -9.2], 8);
+        document.getElementById('mapCenterInput').value = '39.5, -9.2';
+        document.getElementById('mapZoomSlider').value = '8';
+        document.getElementById('zoomLevel').textContent = '8';
+    }
+
+    exportMapView() {
+        // Simple export functionality - could be enhanced with actual map export
+        const center = this.map.getCenter();
+        const zoom = this.map.getZoom();
+        const mapType = document.getElementById('mapTypeSelect').value;
+        
+        const data = {
+            center: { lat: center.lat, lon: center.lng },
+            zoom: zoom,
+            mapType: mapType,
+            ships: this.ships,
+            timestamp: new Date().toISOString()
+        };
+
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `siren-map-export-${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        
+        this.showNotification('Map view exported', 'success');
+    }
+
+    onMapClick(e) {
+        // Display click coordinates
+        const lat = e.latlng.lat.toFixed(6);
+        const lon = e.latlng.lng.toFixed(6);
+        console.log(`Map clicked at: ${lat}, ${lon}`);
+    }
+
+    updateMouseCoordinates(e) {
+        const lat = e.latlng.lat.toFixed(6);
+        const lon = e.latlng.lng.toFixed(6);
+        document.getElementById('mouseCoords').textContent = `Lat: ${lat}, Lon: ${lon}`;
+    }
+
+    updateZoomDisplay() {
+        const zoom = this.map.getZoom();
+        document.getElementById('mapZoomSlider').value = zoom;
+        document.getElementById('zoomLevel').textContent = zoom;
+    }
+
+    updateShipPositions() {
+        if (!this.map) return;
+
+        this.ships.forEach((ship, index) => {
+            this.updateShipMarker(ship, index);
+            this.updateShipTrack(ship);
+        });
+
+        this.updateTrackLines();
+        this.updateMapCounters();
+
+        // Auto-follow if enabled and simulation is active
+        if (this.mapState.autoFollow && this.simulation.active && this.ships.length > 0) {
+            this.centerMapOnShips();
+        }
+    }
+
+    updateShipMarker(ship, index) {
+        const mmsi = ship.mmsi;
+        
+        if (this.mapState.shipMarkers.has(mmsi)) {
+            // Update existing marker
+            const marker = this.mapState.shipMarkers.get(mmsi);
+            marker.setLatLng([ship.lat, ship.lon]);
+        } else {
+            // Create new marker
+            const marker = L.marker([ship.lat, ship.lon], {
+                icon: this.shipIcon,
+                rotationAngle: ship.course || 0
+            }).addTo(this.map);
+
+            marker.bindPopup(this.createShipPopup(ship));
+            marker.on('click', () => this.selectShip(ship, index));
+            
+            this.mapState.shipMarkers.set(mmsi, marker);
+        }
+    }
+
+    updateShipTrack(ship) {
+        const mmsi = ship.mmsi;
+        
+        if (!this.mapState.shipTracks.has(mmsi)) {
+            this.mapState.shipTracks.set(mmsi, []);
+        }
+        
+        const track = this.mapState.shipTracks.get(mmsi);
+        const currentPos = [ship.lat, ship.lon];
+        
+        // Add position if it's different from the last one
+        if (track.length === 0 || 
+            track[track.length - 1][0] !== currentPos[0] || 
+            track[track.length - 1][1] !== currentPos[1]) {
+            
+            track.push(currentPos);
+            
+            // Limit track length
+            if (track.length > this.mapState.maxTrackPoints) {
+                track.shift();
+            }
+        }
+    }
+
+    updateTrackLines() {
+        if (!this.mapState.showTracks) return;
+
+        this.mapState.shipTracks.forEach((track, mmsi) => {
+            if (track.length < 2) return;
+
+            // Remove old track line
+            if (this.mapState.trackLines.has(mmsi)) {
+                this.map.removeLayer(this.mapState.trackLines.get(mmsi));
+            }
+
+            // Create new track line
+            const trackLine = L.polyline(track, {
+                color: this.getShipColor(mmsi),
+                weight: 2,
+                opacity: 0.7
+            }).addTo(this.map);
+
+            this.mapState.trackLines.set(mmsi, trackLine);
+        });
+    }
+
+    updateTrackVisibility() {
+        this.mapState.trackLines.forEach((trackLine, mmsi) => {
+            if (this.mapState.showTracks) {
+                if (!this.map.hasLayer(trackLine)) {
+                    this.map.addLayer(trackLine);
+                }
+            } else {
+                if (this.map.hasLayer(trackLine)) {
+                    this.map.removeLayer(trackLine);
+                }
+            }
+        });
+    }
+
+    getShipColor(mmsi) {
+        // Generate a consistent color for each ship based on MMSI
+        const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8'];
+        return colors[mmsi % colors.length];
+    }
+
+    createShipPopup(ship) {
+        return `
+            <div class="ship-popup">
+                <h6><strong>${ship.name}</strong></h6>
+                <p><strong>MMSI:</strong> ${ship.mmsi}<br>
+                <strong>Type:</strong> ${this.getShipTypeName(ship.shipType)}<br>
+                <strong>Position:</strong> ${ship.lat.toFixed(6)}, ${ship.lon.toFixed(6)}<br>
+                <strong>Course:</strong> ${ship.course}°<br>
+                <strong>Speed:</strong> ${ship.speed} knots<br>
+                <strong>Length:</strong> ${ship.length}m</p>
+            </div>
+        `;
+    }
+
+    selectShip(ship, index) {
+        this.mapState.selectedShip = ship;
+        
+        // Update ship marker icons
+        this.mapState.shipMarkers.forEach((marker, mmsi) => {
+            marker.setIcon(mmsi === ship.mmsi ? this.selectedShipIcon : this.shipIcon);
+        });
+
+        // Update ship info panel
+        this.updateSelectedShipInfo(ship);
+    }
+
+    updateSelectedShipInfo(ship) {
+        const infoPanel = document.getElementById('selectedShipInfo');
+        infoPanel.innerHTML = `
+            <h6><strong>${ship.name}</strong></h6>
+            <table class="table table-sm">
+                <tr><td><strong>MMSI:</strong></td><td>${ship.mmsi}</td></tr>
+                <tr><td><strong>Type:</strong></td><td>${this.getShipTypeName(ship.shipType)}</td></tr>
+                <tr><td><strong>Position:</strong></td><td>${ship.lat.toFixed(6)}, ${ship.lon.toFixed(6)}</td></tr>
+                <tr><td><strong>Course:</strong></td><td>${ship.course}°</td></tr>
+                <tr><td><strong>Speed:</strong></td><td>${ship.speed} knots</td></tr>
+                <tr><td><strong>Length:</strong></td><td>${ship.length}m</td></tr>
+            </table>
+            <button class="btn btn-sm btn-primary" onclick="sirenApp.editShip(${this.ships.indexOf(ship)})">
+                <i class="fas fa-edit"></i> Edit Ship
+            </button>
+        `;
+    }
+
+    updateMapCounters() {
+        document.getElementById('activeShipsCount').textContent = this.ships.length;
+        document.getElementById('tracksCount').textContent = this.mapState.trackLines.size;
+        document.getElementById('waypointsCount').textContent = this.mapState.waypoints.size;
+    }
+
+    startMapUpdates(interval = 5000) {
+        this.stopMapUpdates();
+        this.mapState.updateInterval = setInterval(() => {
+            this.updateShipPositions();
+        }, interval);
+    }
+
+    stopMapUpdates() {
+        if (this.mapState.updateInterval) {
+            clearInterval(this.mapState.updateInterval);
+            this.mapState.updateInterval = null;
+        }
     }
 
     // =====================================
