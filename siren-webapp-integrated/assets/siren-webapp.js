@@ -39,7 +39,12 @@ class SIRENWebApp {
         this.updateUI();
         this.connectToGNURadio();
         
-        console.log('SIREN Web Application initialized');
+        console.log(`SIREN Web Application initialized with ${this.ships.length} ships`);
+        
+        // If no ships loaded from storage, you might want to load sample data
+        if (this.ships.length === 0) {
+            console.log('No ships found in storage. You can load sample data from the Scenarios tab.');
+        }
     }
 
     setupEventListeners() {
@@ -48,6 +53,7 @@ class SIRENWebApp {
         document.getElementById('saveShipBtn').addEventListener('click', () => this.addShip());
         document.getElementById('loadFleetBtn').addEventListener('click', () => this.loadFleet());
         document.getElementById('saveFleetBtn').addEventListener('click', () => this.saveFleet());
+        document.getElementById('loadSampleBtn').addEventListener('click', () => this.loadSampleData());
 
         // Simulation Control
         document.getElementById('startSimulationBtn').addEventListener('click', () => this.startSimulation());
@@ -68,9 +74,24 @@ class SIRENWebApp {
                         // Map exists, just refresh to ensure proper sizing
                         this.map.invalidateSize();
                     }
+                    // Force update ship positions when map tab is shown
+                    this.updateShipPositions();
                 }, 100);
             }
         });
+
+        // Keyboard events for waypoint picking
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && this.waypointPickingMode && this.waypointPickingMode.active) {
+                this.disableWaypointPickingMode();
+                this.showNotification('Waypoint picking cancelled', 'info');
+            }
+        });
+
+        // Waypoint control buttons
+        document.getElementById('showAllWaypointsBtn').addEventListener('click', () => this.showAllWaypoints());
+        document.getElementById('hideAllWaypointsBtn').addEventListener('click', () => this.hideAllWaypoints());
+        document.getElementById('centerOnWaypointsBtn').addEventListener('click', () => this.centerOnWaypoints());
     }
 
     // =====================================
@@ -175,6 +196,50 @@ class SIRENWebApp {
                         <option value="7" ${ship.status === 7 ? 'selected' : ''}>Engaged in fishing</option>
                     </select>
                 </div>
+                
+                <!-- Waypoint Management Section -->
+                <div class="mb-3">
+                    <hr>
+                    <h6><i class="fas fa-route"></i> Waypoint Navigation</h6>
+                    
+                    <!-- Waypoint List -->
+                    <div class="waypoint-list mb-2" style="max-height: 150px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px; padding: 5px;">
+                        <div id="waypointList-${index}">
+                            ${this.renderWaypointList(ship.waypoints || [])}
+                        </div>
+                    </div>
+                    
+                    <!-- Add Waypoint Controls -->
+                    <div class="row mb-2">
+                        <div class="col-5">
+                            <input type="number" class="form-control form-control-sm" id="waypointLat-${index}" placeholder="Latitude" step="0.000001">
+                        </div>
+                        <div class="col-5">
+                            <input type="number" class="form-control form-control-sm" id="waypointLon-${index}" placeholder="Longitude" step="0.000001">
+                        </div>
+                        <div class="col-2">
+                            <button type="button" class="btn btn-outline-primary btn-sm" onclick="sirenApp.addWaypoint(${index})" title="Add Waypoint">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Waypoint Controls -->
+                    <div class="btn-group btn-group-sm w-100 mb-2">
+                        <button type="button" class="btn btn-outline-info" onclick="sirenApp.pickWaypointFromMap(${index})" title="Pick from Map">
+                            <i class="fas fa-map-marker-alt"></i> Pick from Map
+                        </button>
+                        <button type="button" class="btn btn-outline-warning" onclick="sirenApp.clearWaypoints(${index})" title="Clear All">
+                            <i class="fas fa-trash"></i> Clear All
+                        </button>
+                        <button type="button" class="btn btn-outline-success" onclick="sirenApp.startWaypointNavigation(${index})" title="Start Navigation">
+                            <i class="fas fa-play"></i> Start Nav
+                        </button>
+                    </div>
+                    
+                    <small class="text-muted">Ship will navigate to waypoints in order. Current: ${ship.current_waypoint >= 0 ? ship.current_waypoint + 1 : 'None'}</small>
+                </div>
+                
                 <div class="d-grid gap-1">
                     <button type="button" class="btn btn-siren btn-sm" onclick="sirenApp.updateShip()">Update</button>
                     <button type="button" class="btn btn-outline-secondary btn-sm" onclick="sirenApp.clearEditor()">Cancel</button>
@@ -204,6 +269,253 @@ class SIRENWebApp {
     clearEditor() {
         this.currentShipIndex = -1;
         document.getElementById('shipEditor').innerHTML = '<p class="text-muted">Select a ship to edit its properties</p>';
+    }
+
+    // =====================================
+    // WAYPOINT MANAGEMENT
+    // =====================================
+
+    renderWaypointList(waypoints) {
+        if (!waypoints || waypoints.length === 0) {
+            return '<small class="text-muted">No waypoints set</small>';
+        }
+        
+        return waypoints.map((wp, i) => `
+            <div class="d-flex justify-content-between align-items-center mb-1 p-1 border-bottom">
+                <small><strong>WP${i + 1}:</strong> ${wp[0].toFixed(6)}, ${wp[1].toFixed(6)}</small>
+                <button type="button" class="btn btn-outline-danger btn-sm" onclick="sirenApp.removeWaypoint(${this.currentShipIndex}, ${i})" title="Remove">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        `).join('');
+    }
+
+    addWaypoint(shipIndex) {
+        const ship = this.ships[shipIndex];
+        const latInput = document.getElementById(`waypointLat-${shipIndex}`);
+        const lonInput = document.getElementById(`waypointLon-${shipIndex}`);
+        
+        const lat = parseFloat(latInput.value);
+        const lon = parseFloat(lonInput.value);
+        
+        if (isNaN(lat) || isNaN(lon)) {
+            this.showNotification('Please enter valid coordinates', 'warning');
+            return;
+        }
+        
+        if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+            this.showNotification('Coordinates out of range', 'warning');
+            return;
+        }
+        
+        if (!ship.waypoints) ship.waypoints = [];
+        if (ship.waypoints.length >= 20) {
+            this.showNotification('Maximum 20 waypoints allowed', 'warning');
+            return;
+        }
+        
+        ship.waypoints.push([lat, lon]);
+        latInput.value = '';
+        lonInput.value = '';
+        
+        // Update the waypoint list display
+        const waypointList = document.getElementById(`waypointList-${shipIndex}`);
+        waypointList.innerHTML = this.renderWaypointList(ship.waypoints);
+        
+        // Add waypoint to map if visible
+        this.updateShipWaypoints(ship);
+        
+        this.saveShipsToStorage();
+        this.showNotification('Waypoint added', 'success');
+    }
+
+    removeWaypoint(shipIndex, waypointIndex) {
+        const ship = this.ships[shipIndex];
+        if (!ship.waypoints || waypointIndex < 0 || waypointIndex >= ship.waypoints.length) return;
+        
+        ship.waypoints.splice(waypointIndex, 1);
+        
+        // Adjust current waypoint index if needed
+        if (ship.current_waypoint > waypointIndex) {
+            ship.current_waypoint--;
+        } else if (ship.current_waypoint === waypointIndex) {
+            ship.current_waypoint = -1; // Reset if current waypoint was removed
+        }
+        
+        // Update the waypoint list display
+        const waypointList = document.getElementById(`waypointList-${shipIndex}`);
+        waypointList.innerHTML = this.renderWaypointList(ship.waypoints);
+        
+        // Update map
+        this.updateShipWaypoints(ship);
+        
+        this.saveShipsToStorage();
+        this.showNotification('Waypoint removed', 'info');
+    }
+
+    clearWaypoints(shipIndex) {
+        if (!confirm('Remove all waypoints for this ship?')) return;
+        
+        const ship = this.ships[shipIndex];
+        ship.waypoints = [];
+        ship.current_waypoint = -1;
+        
+        // Update the waypoint list display
+        const waypointList = document.getElementById(`waypointList-${shipIndex}`);
+        waypointList.innerHTML = this.renderWaypointList(ship.waypoints);
+        
+        // Update map
+        this.updateShipWaypoints(ship);
+        
+        this.saveShipsToStorage();
+        this.showNotification('All waypoints cleared', 'info');
+    }
+
+    pickWaypointFromMap(shipIndex) {
+        // Switch to map tab and enable waypoint picking mode
+        if (!this.map) {
+            this.showNotification('Map not initialized. Go to Live Map tab first.', 'warning');
+            return;
+        }
+        
+        // Switch to map tab
+        const mapTab = document.getElementById('map-tab');
+        const tabInstance = new bootstrap.Tab(mapTab);
+        tabInstance.show();
+        
+        // Enable waypoint picking mode
+        this.enableWaypointPickingMode(shipIndex);
+        this.showNotification('Click on the map to add a waypoint', 'info');
+    }
+
+    enableWaypointPickingMode(shipIndex) {
+        this.waypointPickingMode = {
+            active: true,
+            shipIndex: shipIndex,
+            originalClickHandler: null
+        };
+        
+        // Store original click handler and set new one
+        if (this.map) {
+            this.map.off('click'); // Remove existing handlers
+            this.map.on('click', (e) => this.onWaypointPickClick(e));
+            
+            // Change cursor to crosshair
+            document.getElementById('shipMap').style.cursor = 'crosshair';
+            
+            // Add instruction overlay
+            this.showMapInstruction('Click to add waypoint. ESC to cancel.');
+        }
+    }
+
+    onWaypointPickClick(e) {
+        if (!this.waypointPickingMode || !this.waypointPickingMode.active) return;
+        
+        const lat = e.latlng.lat;
+        const lon = e.latlng.lng;
+        const shipIndex = this.waypointPickingMode.shipIndex;
+        
+        // Add waypoint to ship
+        const ship = this.ships[shipIndex];
+        if (!ship.waypoints) ship.waypoints = [];
+        if (ship.waypoints.length >= 20) {
+            this.showNotification('Maximum 20 waypoints allowed', 'warning');
+            this.disableWaypointPickingMode();
+            return;
+        }
+        
+        ship.waypoints.push([lat, lon]);
+        
+        // Update waypoint display if ship editor is open
+        const waypointList = document.getElementById(`waypointList-${shipIndex}`);
+        if (waypointList) {
+            waypointList.innerHTML = this.renderWaypointList(ship.waypoints);
+        }
+        
+        // Update map
+        this.updateShipWaypoints(ship);
+        
+        this.saveShipsToStorage();
+        this.showNotification(`Waypoint ${ship.waypoints.length} added at ${lat.toFixed(6)}, ${lon.toFixed(6)}`, 'success');
+        
+        // Exit picking mode
+        this.disableWaypointPickingMode();
+    }
+
+    disableWaypointPickingMode() {
+        if (!this.waypointPickingMode) return;
+        
+        this.waypointPickingMode.active = false;
+        
+        // Restore normal map behavior
+        if (this.map) {
+            this.map.off('click');
+            this.map.on('click', (e) => this.onMapClick(e)); // Restore original handler
+            document.getElementById('shipMap').style.cursor = '';
+        }
+        
+        this.hideMapInstruction();
+    }
+
+    startWaypointNavigation(shipIndex) {
+        const ship = this.ships[shipIndex];
+        if (!ship.waypoints || ship.waypoints.length === 0) {
+            this.showNotification('No waypoints to navigate to', 'warning');
+            return;
+        }
+        
+        ship.current_waypoint = 0; // Start with first waypoint
+        
+        // Calculate course to first waypoint
+        const firstWaypoint = ship.waypoints[0];
+        ship.course = this.calculateBearing(ship.lat, ship.lon, firstWaypoint[0], firstWaypoint[1]);
+        ship.heading = ship.course;
+        
+        this.saveShipsToStorage();
+        this.updateUI();
+        this.showNotification(`Started navigation to ${ship.waypoints.length} waypoints`, 'success');
+    }
+
+    stopWaypointNavigation(shipIndex) {
+        const ship = this.ships[shipIndex];
+        ship.current_waypoint = -1;
+        
+        this.saveShipsToStorage();
+        this.updateUI();
+        this.showNotification('Waypoint navigation stopped', 'info');
+    }
+
+    showMapInstruction(text) {
+        const mapContainer = document.getElementById('shipMap');
+        let instructionDiv = document.getElementById('mapInstruction');
+        
+        if (!instructionDiv) {
+            instructionDiv = document.createElement('div');
+            instructionDiv.id = 'mapInstruction';
+            instructionDiv.style.cssText = `
+                position: absolute;
+                top: 10px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: rgba(0,0,0,0.8);
+                color: white;
+                padding: 8px 16px;
+                border-radius: 4px;
+                z-index: 1001;
+                font-size: 14px;
+            `;
+            mapContainer.appendChild(instructionDiv);
+        }
+        
+        instructionDiv.textContent = text;
+        instructionDiv.style.display = 'block';
+    }
+
+    hideMapInstruction() {
+        const instructionDiv = document.getElementById('mapInstruction');
+        if (instructionDiv) {
+            instructionDiv.style.display = 'none';
+        }
     }
 
     // =====================================
@@ -299,7 +611,16 @@ class SIRENWebApp {
     moveShip(ship) {
         if (ship.speed <= 0) return;
 
-        // Simple movement calculation (can be enhanced with waypoint navigation)
+        // Check if ship is following waypoints
+        if (ship.waypoints && ship.waypoints.length > 0 && ship.current_waypoint >= 0) {
+            this.moveShipWithWaypoints(ship);
+        } else {
+            this.moveShipStraight(ship);
+        }
+    }
+
+    moveShipStraight(ship) {
+        // Simple movement calculation (original behavior)
         const timeStep = this.simulation.interval / 3600; // Convert seconds to hours
         const distanceNM = ship.speed * timeStep;
         
@@ -315,6 +636,78 @@ class SIRENWebApp {
         if (ship.lat < -90) ship.lat = -90;
         if (ship.lon > 180) ship.lon = -180;
         if (ship.lon < -180) ship.lon = 180;
+    }
+
+    moveShipWithWaypoints(ship) {
+        if (ship.current_waypoint >= ship.waypoints.length) {
+            // All waypoints reached, stop navigation
+            ship.current_waypoint = -1;
+            console.log(`${ship.name}: All waypoints reached, stopping navigation`);
+            return;
+        }
+
+        const currentWaypoint = ship.waypoints[ship.current_waypoint];
+        const distanceToWaypoint = this.haversineDistance(ship.lat, ship.lon, currentWaypoint[0], currentWaypoint[1]);
+        
+        // Check if waypoint is reached (within ~1km)
+        if (distanceToWaypoint <= ship.waypoint_radius * 111.0) { // waypoint_radius in degrees * 111 km/degree
+            console.log(`${ship.name}: Waypoint ${ship.current_waypoint + 1} reached`);
+            
+            // Move to next waypoint
+            ship.current_waypoint++;
+            
+            if (ship.current_waypoint < ship.waypoints.length) {
+                // Set course to next waypoint
+                const nextWaypoint = ship.waypoints[ship.current_waypoint];
+                ship.course = this.calculateBearing(ship.lat, ship.lon, nextWaypoint[0], nextWaypoint[1]);
+                ship.heading = ship.course;
+                console.log(`${ship.name}: Set course to waypoint ${ship.current_waypoint + 1}: ${ship.course.toFixed(1)}°`);
+            } else {
+                console.log(`${ship.name}: All waypoints reached`);
+                ship.current_waypoint = -1; // Stop navigation
+                return;
+            }
+        }
+
+        // Move ship toward current waypoint
+        this.moveShipStraight(ship);
+    }
+
+    // Haversine distance calculation (in kilometers)
+    haversineDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371; // Earth's radius in kilometers
+        const dLat = this.toRadians(lat2 - lat1);
+        const dLon = this.toRadians(lon2 - lon1);
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                  Math.cos(this.toRadians(lat1)) * Math.cos(this.toRadians(lat2)) *
+                  Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+
+    // Calculate bearing between two points
+    calculateBearing(lat1, lon1, lat2, lon2) {
+        const dLon = this.toRadians(lon2 - lon1);
+        const lat1Rad = this.toRadians(lat1);
+        const lat2Rad = this.toRadians(lat2);
+        
+        const x = Math.sin(dLon) * Math.cos(lat2Rad);
+        const y = Math.cos(lat1Rad) * Math.sin(lat2Rad) - 
+                  Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
+        
+        let bearing = Math.atan2(x, y);
+        bearing = this.toDegrees(bearing);
+        
+        // Normalize to 0-360
+        return (bearing + 360) % 360;
+    }
+
+    toRadians(degrees) {
+        return degrees * (Math.PI / 180);
+    }
+
+    toDegrees(radians) {
+        return radians * (180 / Math.PI);
     }
 
     // =====================================
@@ -656,6 +1049,75 @@ class SIRENWebApp {
         this.showNotification('Fleet saved', 'success');
     }
 
+    loadSampleData() {
+        // Load sample ships for testing
+        const sampleShips = [
+            {
+                name: "Atlantic Trader",
+                mmsi: 234567890,
+                ship_type: 70,
+                length: 180.0,
+                beam: 28.0,
+                lat: 39.52,
+                lon: -9.18,
+                course: 45,
+                speed: 12.0,
+                status: 0,
+                turn: 0,
+                destination: "LISBON",
+                accuracy: 1,
+                heading: 45,
+                waypoints: [[39.55, -9.15], [39.58, -9.12]],
+                current_waypoint: -1,
+                waypoint_radius: 0.01
+            },
+            {
+                name: "Fishing Vessel Maria",
+                mmsi: 345678901,
+                ship_type: 30,
+                length: 25.0,
+                beam: 8.0,
+                lat: 39.48,
+                lon: -9.22,
+                course: 180,
+                speed: 6.0,
+                status: 7,
+                turn: 0,
+                destination: "",
+                accuracy: 1,
+                heading: 180,
+                waypoints: [],
+                current_waypoint: -1,
+                waypoint_radius: 0.01
+            },
+            {
+                name: "Cargo Express",
+                mmsi: 456789012,
+                ship_type: 70,
+                length: 150.0,
+                beam: 22.0,
+                lat: 39.60,
+                lon: -9.10,
+                course: 270,
+                speed: 15.0,
+                status: 0,
+                turn: 0,
+                destination: "PORTO",
+                accuracy: 1,
+                heading: 270,
+                waypoints: [[39.62, -9.10], [39.65, -9.15]],
+                current_waypoint: -1,
+                waypoint_radius: 0.01
+            }
+        ];
+
+        this.ships = sampleShips;
+        this.saveShipsToStorage();
+        this.updateUI();
+        this.showNotification('Sample fleet loaded successfully', 'success');
+        console.log(`Loaded ${this.ships.length} sample ships`);
+    }
+
     // =====================================
     // =====================================
     // INTERACTIVE MAP FUNCTIONALITY
@@ -785,6 +1247,11 @@ class SIRENWebApp {
         document.getElementById('initializeMapBtn').addEventListener('click', () => this.initializeMap());
         document.getElementById('resetMapViewBtn').addEventListener('click', () => this.resetMapView());
         document.getElementById('exportMapBtn').addEventListener('click', () => this.exportMapView());
+
+        // Waypoint control buttons
+        document.getElementById('showAllWaypointsBtn').addEventListener('click', () => this.showAllWaypoints());
+        document.getElementById('hideAllWaypointsBtn').addEventListener('click', () => this.hideAllWaypoints());
+        document.getElementById('centerOnWaypointsBtn').addEventListener('click', () => this.centerOnWaypoints());
     }
 
     changeMapType(type) {
@@ -975,11 +1442,22 @@ class SIRENWebApp {
     }
 
     updateShipPositions() {
-        if (!this.map) return;
+        if (!this.map) {
+            console.log('Map not initialized, skipping ship position update');
+            return;
+        }
+
+        if (this.ships.length === 0) {
+            console.log('No ships to display on map');
+            return;
+        }
+
+        console.log(`Updating map positions for ${this.ships.length} ships`);
 
         this.ships.forEach((ship, index) => {
             this.updateShipMarker(ship, index);
             this.updateShipTrack(ship);
+            this.updateShipWaypoints(ship);
         });
 
         this.updateTrackLines();
@@ -1009,6 +1487,7 @@ class SIRENWebApp {
             marker.on('click', () => this.selectShip(ship, index));
             
             this.mapState.shipMarkers.set(mmsi, marker);
+            console.log(`Added ship marker: ${ship.name} (${this.mapState.shipMarkers.size} total)`);
         }
     }
 
@@ -1033,6 +1512,53 @@ class SIRENWebApp {
             if (track.length > this.mapState.maxTrackPoints) {
                 track.shift();
             }
+        }
+    }
+
+    createShipPopup(ship) {
+        return `
+            <div class="ship-popup">
+                <h6><strong>${ship.name}</strong></h6>
+                <p><strong>MMSI:</strong> ${ship.mmsi}<br>
+                <strong>Type:</strong> ${this.getShipTypeName(ship.ship_type)}<br>
+                <strong>Position:</strong> ${ship.lat.toFixed(6)}, ${ship.lon.toFixed(6)}<br>
+                <strong>Course:</strong> ${ship.course}°<br>
+                <strong>Speed:</strong> ${ship.speed} knots<br>
+                <strong>Length:</strong> ${ship.length}m</p>
+            </div>
+        `;
+    }
+
+    selectShip(ship, index) {
+        this.mapState.selectedShip = ship;
+        
+        // Update ship marker icons
+        this.mapState.shipMarkers.forEach((marker, mmsi) => {
+            marker.setIcon(mmsi === ship.mmsi ? this.selectedShipIcon : this.shipIcon);
+        });
+
+        // Update ship info panel
+        this.updateSelectedShipInfo(ship, index);
+    }
+
+    updateSelectedShipInfo(ship, index) {
+        const infoPanel = document.getElementById('selectedShipInfo');
+        if (infoPanel) {
+            infoPanel.innerHTML = `
+                <h6><strong>${ship.name}</strong></h6>
+                <table class="table table-sm">
+                    <tr><td><strong>MMSI:</strong></td><td>${ship.mmsi}</td></tr>
+                    <tr><td><strong>Type:</strong></td><td>${this.getShipTypeName(ship.ship_type)}</td></tr>
+                    <tr><td><strong>Position:</strong></td><td>${ship.lat.toFixed(6)}, ${ship.lon.toFixed(6)}</td></tr>
+                    <tr><td><strong>Course:</strong></td><td>${ship.course}°</td></tr>
+                    <tr><td><strong>Speed:</strong></td><td>${ship.speed} knots</td></tr>
+                    <tr><td><strong>Length:</strong></td><td>${ship.length}m</td></tr>
+                    <tr><td><strong>Waypoints:</strong></td><td>${ship.waypoints ? ship.waypoints.length : 0}</td></tr>
+                </table>
+                <button class="btn btn-sm btn-primary" onclick="sirenApp.editShip(${index})">
+                    <i class="fas fa-edit"></i> Edit Ship
+                </button>
+            `;
         }
     }
 
@@ -1072,73 +1598,103 @@ class SIRENWebApp {
         });
     }
 
-    getShipColor(mmsi) {
-        // Generate a consistent color for each ship based on MMSI
-        const colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD', '#98D8C8'];
-        return colors[mmsi % colors.length];
-    }
-
-    createShipPopup(ship) {
-        return `
-            <div class="ship-popup">
-                <h6><strong>${ship.name}</strong></h6>
-                <p><strong>MMSI:</strong> ${ship.mmsi}<br>
-                <strong>Type:</strong> ${this.getShipTypeName(ship.shipType)}<br>
-                <strong>Position:</strong> ${ship.lat.toFixed(6)}, ${ship.lon.toFixed(6)}<br>
-                <strong>Course:</strong> ${ship.course}°<br>
-                <strong>Speed:</strong> ${ship.speed} knots<br>
-                <strong>Length:</strong> ${ship.length}m</p>
-            </div>
-        `;
-    }
-
-    selectShip(ship, index) {
-        this.mapState.selectedShip = ship;
+    updateShipWaypoints(ship) {
+        if (!this.map) return;
         
-        // Update ship marker icons
-        this.mapState.shipMarkers.forEach((marker, mmsi) => {
-            marker.setIcon(mmsi === ship.mmsi ? this.selectedShipIcon : this.shipIcon);
+        const mmsi = ship.mmsi;
+        
+        // Remove existing waypoint markers for this ship
+        if (this.mapState.waypoints.has(mmsi)) {
+            const waypoints = this.mapState.waypoints.get(mmsi);
+            waypoints.forEach(marker => this.map.removeLayer(marker));
+        }
+        
+        // Add new waypoint markers
+        const waypointMarkers = [];
+        if (ship.waypoints && ship.waypoints.length > 0) {
+            ship.waypoints.forEach((waypoint, index) => {
+                const isCurrent = index === ship.current_waypoint;
+                const isPassed = ship.current_waypoint > index;
+                
+                let color = '#28a745'; // Default green
+                if (isCurrent) color = '#ffc107'; // Yellow for current
+                if (isPassed) color = '#6c757d'; // Gray for passed
+                
+                const marker = L.circleMarker([waypoint[0], waypoint[1]], {
+                    radius: 6,
+                    fillColor: color,
+                    color: '#fff',
+                    weight: 2,
+                    opacity: 1,
+                    fillOpacity: 0.8
+                }).addTo(this.map);
+                
+                marker.bindPopup(`
+                    <div class="waypoint-popup">
+                        <strong>${ship.name}</strong><br>
+                        Waypoint ${index + 1}<br>
+                        ${waypoint[0].toFixed(6)}, ${waypoint[1].toFixed(6)}<br>
+                        Status: ${isCurrent ? 'Current Target' : isPassed ? 'Passed' : 'Pending'}
+                    </div>
+                `);
+                
+                waypointMarkers.push(marker);
+            });
+            
+            // Draw route line connecting waypoints
+            if (ship.waypoints.length > 1) {
+                const routeLine = L.polyline(ship.waypoints, {
+                    color: this.getShipColor(mmsi),
+                    weight: 2,
+                    opacity: 0.6,
+                    dashArray: '5, 10'
+                }).addTo(this.map);
+                
+                waypointMarkers.push(routeLine);
+            }
+        }
+        
+        this.mapState.waypoints.set(mmsi, waypointMarkers);
+    }
+
+    showAllWaypoints() {
+        this.mapState.showWaypoints = true;
+        document.getElementById('showWaypoints').checked = true;
+        this.ships.forEach(ship => this.updateShipWaypoints(ship));
+        this.showNotification('All waypoints shown', 'info');
+    }
+
+    hideAllWaypoints() {
+        this.mapState.showWaypoints = false;
+        document.getElementById('showWaypoints').checked = false;
+        
+        // Hide all waypoint markers
+        this.mapState.waypoints.forEach((waypoints, mmsi) => {
+            waypoints.forEach(marker => this.map.removeLayer(marker));
         });
-
-        // Update ship info panel
-        this.updateSelectedShipInfo(ship);
+        this.mapState.waypoints.clear();
+        
+        this.showNotification('All waypoints hidden', 'info');
     }
 
-    updateSelectedShipInfo(ship) {
-        const infoPanel = document.getElementById('selectedShipInfo');
-        infoPanel.innerHTML = `
-            <h6><strong>${ship.name}</strong></h6>
-            <table class="table table-sm">
-                <tr><td><strong>MMSI:</strong></td><td>${ship.mmsi}</td></tr>
-                <tr><td><strong>Type:</strong></td><td>${this.getShipTypeName(ship.shipType)}</td></tr>
-                <tr><td><strong>Position:</strong></td><td>${ship.lat.toFixed(6)}, ${ship.lon.toFixed(6)}</td></tr>
-                <tr><td><strong>Course:</strong></td><td>${ship.course}°</td></tr>
-                <tr><td><strong>Speed:</strong></td><td>${ship.speed} knots</td></tr>
-                <tr><td><strong>Length:</strong></td><td>${ship.length}m</td></tr>
-            </table>
-            <button class="btn btn-sm btn-primary" onclick="sirenApp.editShip(${this.ships.indexOf(ship)})">
-                <i class="fas fa-edit"></i> Edit Ship
-            </button>
-        `;
-    }
-
-    updateMapCounters() {
-        document.getElementById('activeShipsCount').textContent = this.ships.length;
-        document.getElementById('tracksCount').textContent = this.mapState.trackLines.size;
-        document.getElementById('waypointsCount').textContent = this.mapState.waypoints.size;
-    }
-
-    startMapUpdates(interval = 5000) {
-        this.stopMapUpdates();
-        this.mapState.updateInterval = setInterval(() => {
-            this.updateShipPositions();
-        }, interval);
-    }
-
-    stopMapUpdates() {
-        if (this.mapState.updateInterval) {
-            clearInterval(this.mapState.updateInterval);
-            this.mapState.updateInterval = null;
+    centerOnWaypoints() {
+        const bounds = L.latLngBounds();
+        let hasWaypoints = false;
+        
+        this.ships.forEach(ship => {
+            if (ship.waypoints && ship.waypoints.length > 0) {
+                ship.waypoints.forEach(waypoint => {
+                    bounds.extend([waypoint[0], waypoint[1]]);
+                    hasWaypoints = true;
+                });
+            }
+        });
+        
+        if (hasWaypoints) {
+            this.map.fitBounds(bounds, { padding: [20, 20] });
+            this.showNotification('Centered on all routes', 'info');
+        } else {
+            this.showNotification('No waypoints to center on', 'warning');
         }
     }
 
