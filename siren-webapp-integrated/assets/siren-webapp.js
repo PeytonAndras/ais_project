@@ -148,6 +148,41 @@ class SIRENWebApp {
 
     removeShip(index) {
         if (confirm(`Remove ship "${this.ships[index].name}"?`)) {
+            const ship = this.ships[index];
+            const mmsi = ship.mmsi;
+            
+            // Clean up map markers and routes for this ship
+            if (this.map) {
+                // Remove ship marker
+                if (this.mapState.shipMarkers && this.mapState.shipMarkers.has(mmsi)) {
+                    this.map.removeLayer(this.mapState.shipMarkers.get(mmsi));
+                    this.mapState.shipMarkers.delete(mmsi);
+                }
+                
+                // Remove waypoint markers
+                if (this.mapState.waypoints && this.mapState.waypoints.has(mmsi)) {
+                    this.mapState.waypoints.get(mmsi).forEach(marker => this.map.removeLayer(marker));
+                    this.mapState.waypoints.delete(mmsi);
+                }
+                
+                // Remove route lines
+                if (this.mapState.routeLines && this.mapState.routeLines.has(mmsi)) {
+                    this.mapState.routeLines.get(mmsi).forEach(line => this.map.removeLayer(line));
+                    this.mapState.routeLines.delete(mmsi);
+                }
+                
+                // Remove ship tracks
+                if (this.mapState.shipTracks && this.mapState.shipTracks.has(mmsi)) {
+                    this.mapState.shipTracks.delete(mmsi);
+                }
+                
+                // Remove track lines
+                if (this.mapState.trackLines && this.mapState.trackLines.has(mmsi)) {
+                    this.map.removeLayer(this.mapState.trackLines.get(mmsi));
+                    this.mapState.trackLines.delete(mmsi);
+                }
+            }
+            
             this.ships.splice(index, 1);
             this.saveShipsToStorage();
             this.updateUI();
@@ -991,6 +1026,19 @@ class SIRENWebApp {
         return types[type] || 'Unknown';
     }
 
+    getShipColor(mmsi) {
+        // Generate a consistent color for each ship based on its MMSI
+        const colors = [
+            '#007bff', '#28a745', '#dc3545', '#ffc107', '#6f42c1', 
+            '#fd7e14', '#20c997', '#e83e8c', '#6c757d', '#17a2b8'
+        ];
+        const hash = mmsi.toString().split('').reduce((a, b) => {
+            a = ((a << 5) - a) + b.charCodeAt(0);
+            return a & a;
+        }, 0);
+        return colors[Math.abs(hash) % colors.length];
+    }
+
     // =====================================
     // STORAGE AND PERSISTENCE
     // =====================================
@@ -1163,6 +1211,7 @@ class SIRENWebApp {
             shipTracks: new Map(),
             trackLines: new Map(),
             waypoints: new Map(),
+            routeLines: new Map(),
             updateInterval: null,
             showTracks: true,
             showWaypoints: true,
@@ -1441,6 +1490,97 @@ class SIRENWebApp {
         document.getElementById('zoomLevel').textContent = zoom;
     }
 
+    startMapUpdates(interval = 2000) {
+        // Stop any existing update interval
+        this.stopMapUpdates();
+        
+        // Start new update interval
+        this.mapState.updateInterval = setInterval(() => {
+            if (this.map && this.ships.length > 0) {
+                this.updateShipPositions();
+            }
+        }, interval);
+        
+        console.log(`Started map updates with ${interval}ms interval`);
+    }
+
+    stopMapUpdates() {
+        if (this.mapState.updateInterval) {
+            clearInterval(this.mapState.updateInterval);
+            this.mapState.updateInterval = null;
+            console.log('Stopped map updates');
+        }
+    }
+
+    updateMapCounters() {
+        // Update ship count display
+        const shipCount = this.ships.length;
+        const activeShips = this.ships.filter(ship => ship.speed > 0).length;
+        const navigatingShips = this.ships.filter(ship => ship.current_waypoint >= 0).length;
+        
+        // Update map info panel if it exists
+        const mapInfo = document.getElementById('mapInfo');
+        if (mapInfo) {
+            mapInfo.innerHTML = `
+                <small class="text-muted">
+                    Ships: ${shipCount} | Active: ${activeShips} | Navigating: ${navigatingShips}
+                </small>
+            `;
+        }
+        
+        // Update markers count
+        const markerCount = this.mapState.shipMarkers ? this.mapState.shipMarkers.size : 0;
+        console.log(`Map updated: ${markerCount} ship markers displayed`);
+    }
+
+    updateTrackVisibility() {
+        if (!this.mapState.trackLines) return;
+        
+        this.mapState.trackLines.forEach((trackLine, mmsi) => {
+            if (this.mapState.showTracks) {
+                if (!this.map.hasLayer(trackLine)) {
+                    this.map.addLayer(trackLine);
+                }
+            } else {
+                if (this.map.hasLayer(trackLine)) {
+                    this.map.removeLayer(trackLine);
+                }
+            }
+        });
+    }
+
+    updateTrackLines() {
+        if (!this.mapState.showTracks) return;
+        
+        this.mapState.shipTracks.forEach((track, mmsi) => {
+            if (track.length > 1) {
+                // Remove existing track line
+                if (this.mapState.trackLines.has(mmsi)) {
+                    this.map.removeLayer(this.mapState.trackLines.get(mmsi));
+                }
+                
+                // Create new track line
+                const trackLine = L.polyline(track, {
+                    color: this.getShipColor(mmsi),
+                    weight: 2,
+                    opacity: 0.5,
+                    smoothFactor: 1
+                }).addTo(this.map);
+                
+                // Add tooltip
+                const ship = this.ships.find(s => s.mmsi === mmsi);
+                if (ship) {
+                    trackLine.bindTooltip(`${ship.name} - Movement Track`, {
+                        permanent: false,
+                        direction: 'center'
+                    });
+                }
+                
+                this.mapState.trackLines.set(mmsi, trackLine);
+            }
+        });
+    }
+
     updateShipPositions() {
         if (!this.map) {
             console.log('Map not initialized, skipping ship position update');
@@ -1452,10 +1592,7 @@ class SIRENWebApp {
             return;
         }
 
-        console.log(`Updating map positions for ${this.ships.length} ships:`);
-        this.ships.forEach((ship, index) => {
-            console.log(`  Ship ${index}: ${ship.name} (MMSI: ${ship.mmsi}) at ${ship.lat}, ${ship.lon}`);
-        });
+        console.log(`Updating map positions for ${this.ships.length} ships`);
 
         this.ships.forEach((ship, index) => {
             this.updateShipMarker(ship, index);
@@ -1466,8 +1603,6 @@ class SIRENWebApp {
         this.updateTrackLines();
         this.updateMapCounters();
 
-        console.log(`Map state: ${this.mapState.shipMarkers.size} markers, ${this.mapState.shipTracks.size} tracks`);
-
         // Auto-follow if enabled and simulation is active
         if (this.mapState.autoFollow && this.simulation.active && this.ships.length > 0) {
             this.centerMapOnShips();
@@ -1477,15 +1612,10 @@ class SIRENWebApp {
     updateShipMarker(ship, index) {
         const mmsi = ship.mmsi;
         
-        console.log(`Updating marker for ship: ${ship.name} (MMSI: ${mmsi}) at ${ship.lat}, ${ship.lon}`);
-        
         if (this.mapState.shipMarkers.has(mmsi)) {
             // Update existing marker
             const marker = this.mapState.shipMarkers.get(mmsi);
             marker.setLatLng([ship.lat, ship.lon]);
-            // Update popup with current data
-            marker.setPopupContent(this.createShipPopup(ship));
-            console.log(`Updated existing marker for ${ship.name}`);
         } else {
             // Create new marker
             const marker = L.marker([ship.lat, ship.lon], {
@@ -1497,7 +1627,7 @@ class SIRENWebApp {
             marker.on('click', () => this.selectShip(ship, index));
             
             this.mapState.shipMarkers.set(mmsi, marker);
-            console.log(`Added new ship marker: ${ship.name} (Total markers: ${this.mapState.shipMarkers.size})`);
+            console.log(`Added ship marker: ${ship.name} (${this.mapState.shipMarkers.size} total)`);
         }
     }
 
@@ -1542,171 +1672,280 @@ class SIRENWebApp {
     selectShip(ship, index) {
         this.mapState.selectedShip = ship;
         
-        // Update ship icon to selected state
-        const marker = this.mapState.shipMarkers.get(ship.mmsi);
-        if (marker) {
-            marker.setIcon(this.selectedShipIcon);
-        }
-        
-        // Reset other ship icons
+        // Update ship marker icons
         this.mapState.shipMarkers.forEach((marker, mmsi) => {
-            if (mmsi !== ship.mmsi) {
-                marker.setIcon(this.shipIcon);
-            }
+            marker.setIcon(mmsi === ship.mmsi ? this.selectedShipIcon : this.shipIcon);
         });
-        
+
+        // Update ship info panel
         this.updateSelectedShipInfo(ship, index);
-        console.log(`Selected ship: ${ship.name}`);
     }
 
     updateSelectedShipInfo(ship, index) {
-        // Update any selected ship info display if it exists
-        const selectedInfo = document.getElementById('selectedShipInfo');
-        if (selectedInfo) {
-            selectedInfo.innerHTML = `
-                <div class="card">
-                    <div class="card-body">
-                        <h6>${ship.name}</h6>
-                        <p><small>MMSI: ${ship.mmsi}<br>
-                        Position: ${ship.lat.toFixed(6)}, ${ship.lon.toFixed(6)}<br>
-                        Course: ${ship.course}° | Speed: ${ship.speed} kts</small></p>
-                    </div>
-                </div>
+        const infoPanel = document.getElementById('selectedShipInfo');
+        if (infoPanel) {
+            infoPanel.innerHTML = `
+                <h6><strong>${ship.name}</strong></h6>
+                <table class="table table-sm">
+                    <tr><td><strong>MMSI:</strong></td><td>${ship.mmsi}</td></tr>
+                    <tr><td><strong>Type:</strong></td><td>${this.getShipTypeName(ship.ship_type)}</td></tr>
+                    <tr><td><strong>Position:</strong></td><td>${ship.lat.toFixed(6)}, ${ship.lon.toFixed(6)}</td></tr>
+                    <tr><td><strong>Course:</strong></td><td>${ship.course}°</td></tr>
+                    <tr><td><strong>Speed:</strong></td><td>${ship.speed} knots</td></tr>
+                    <tr><td><strong>Length:</strong></td><td>${ship.length}m</td></tr>
+                    <tr><td><strong>Waypoints:</strong></td><td>${ship.waypoints ? ship.waypoints.length : 0}</td></tr>
+                </table>
+                <button class="btn btn-sm btn-primary" onclick="sirenApp.editShip(${index})">
+                    <i class="fas fa-edit"></i> Edit Ship
+                </button>
             `;
         }
     }
 
-    updateMapCounters() {
-        // Update ship counter if element exists
-        const shipCounter = document.getElementById('mapShipCount');
-        if (shipCounter) {
-            shipCounter.textContent = this.mapState.shipMarkers.size;
-        }
-        
-        // Update visible ships counter
-        const visibleShips = document.getElementById('visibleShipsCount');
-        if (visibleShips) {
-            visibleShips.textContent = this.mapState.shipMarkers.size;
-        }
-    }
-
-    updateShipWaypoints(ship) {
-        if (!this.map || !ship.waypoints || ship.waypoints.length === 0) {
-            return;
-        }
-
-        const mmsi = ship.mmsi;
-        
-        // Remove existing waypoint markers for this ship
-        if (this.mapState.waypoints.has(mmsi)) {
-            this.mapState.waypoints.get(mmsi).forEach(marker => {
-                this.map.removeLayer(marker);
-            });
-        }
-
-        // Add new waypoint markers if waypoints are visible
-        if (this.mapState.showWaypoints) {
-            const waypointMarkers = [];
-            ship.waypoints.forEach((wp, index) => {
-                const marker = L.circleMarker([wp[0], wp[1]], {
-                    radius: 5,
-                    fillColor: ship.current_waypoint === index ? '#ff0000' : '#ffff00',
-                    color: '#000',
-                    weight: 1,
-                    opacity: 1,
-                    fillOpacity: 0.8
-                }).addTo(this.map);
-                
-                marker.bindPopup(`${ship.name} - Waypoint ${index + 1}<br>Lat: ${wp[0].toFixed(6)}<br>Lon: ${wp[1].toFixed(6)}`);
-                waypointMarkers.push(marker);
-            });
-            
-            this.mapState.waypoints.set(mmsi, waypointMarkers);
-        }
-    }
-
     updateTrackLines() {
-        if (!this.map || !this.mapState.showTracks) {
-            return;
-        }
-
-        // Clear existing track lines
-        this.mapState.trackLines.forEach((line, mmsi) => {
-            this.map.removeLayer(line);
-        });
-        this.mapState.trackLines.clear();
-
-        // Draw track lines for each ship
+        if (!this.mapState.showTracks) return;
+        
         this.mapState.shipTracks.forEach((track, mmsi) => {
             if (track.length > 1) {
-                const line = L.polyline(track, {
-                    color: '#0066cc',
+                // Remove existing track line
+                if (this.mapState.trackLines.has(mmsi)) {
+                    this.map.removeLayer(this.mapState.trackLines.get(mmsi));
+                }
+                
+                // Create new track line
+                const trackLine = L.polyline(track, {
+                    color: this.getShipColor(mmsi),
                     weight: 2,
-                    opacity: 0.7
+                    opacity: 0.5,
+                    smoothFactor: 1
                 }).addTo(this.map);
                 
-                this.mapState.trackLines.set(mmsi, line);
+                // Add tooltip
+                const ship = this.ships.find(s => s.mmsi === mmsi);
+                if (ship) {
+                    trackLine.bindTooltip(`${ship.name} - Movement Track`, {
+                        permanent: false,
+                        direction: 'center'
+                    });
+                }
+                
+                this.mapState.trackLines.set(mmsi, trackLine);
             }
         });
     }
 
-    updateTrackVisibility() {
-        if (this.mapState.showTracks) {
-            this.updateTrackLines();
-        } else {
-            this.mapState.trackLines.forEach((line, mmsi) => {
-                this.map.removeLayer(line);
-            });
-            this.mapState.trackLines.clear();
+    updateShipWaypoints(ship) {
+        if (!this.map) return;
+        
+        const mmsi = ship.mmsi;
+        
+        // Remove existing waypoint markers and route lines for this ship
+        if (this.mapState.waypoints.has(mmsi)) {
+            const waypoints = this.mapState.waypoints.get(mmsi);
+            waypoints.forEach(marker => this.map.removeLayer(marker));
         }
+        
+        // Clear any existing route lines for this ship
+        if (this.mapState.routeLines && this.mapState.routeLines.has) {
+            if (this.mapState.routeLines.has(mmsi)) {
+                this.mapState.routeLines.get(mmsi).forEach(line => this.map.removeLayer(line));
+                this.mapState.routeLines.delete(mmsi);
+            }
+        } else {
+            // Initialize routeLines if it doesn't exist
+            this.mapState.routeLines = new Map();
+        }
+        
+        // Don't show waypoints if visibility is turned off
+        if (!this.mapState.showWaypoints) {
+            this.mapState.waypoints.set(mmsi, []);
+            return;
+        }
+        
+        // Add new waypoint markers and route lines
+        const waypointMarkers = [];
+        const routeLines = [];
+        
+        if (ship.waypoints && ship.waypoints.length > 0) {
+            const shipColor = this.getShipColor(mmsi);
+            
+            // Create waypoint markers
+            ship.waypoints.forEach((waypoint, index) => {
+                const isCurrent = index === ship.current_waypoint;
+                const isPassed = ship.current_waypoint > index;
+                
+                let color = '#28a745'; // Default green for future waypoints
+                let borderColor = '#fff';
+                let radius = 6;
+                
+                if (isCurrent) {
+                    color = '#ffc107'; // Yellow for current target
+                    borderColor = '#000';
+                    radius = 8;
+                } else if (isPassed) {
+                    color = '#6c757d'; // Gray for passed waypoints
+                    radius = 5;
+                }
+                
+                const marker = L.circleMarker([waypoint[0], waypoint[1]], {
+                    radius: radius,
+                    fillColor: color,
+                    color: borderColor,
+                    weight: 2,
+                    opacity: 1,
+                    fillOpacity: 0.8
+                }).addTo(this.map);
+                
+                // Add waypoint number label
+                const label = L.divIcon({
+                    className: 'waypoint-label',
+                    html: `<div style="background: white; border-radius: 50%; width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: bold; border: 1px solid ${color};">${index + 1}</div>`,
+                    iconSize: [16, 16],
+                    iconAnchor: [8, 8]
+                });
+                
+                const labelMarker = L.marker([waypoint[0], waypoint[1]], { 
+                    icon: label,
+                    zIndexOffset: 1000 
+                }).addTo(this.map);
+                
+                marker.bindPopup(`
+                    <div class="waypoint-popup">
+                        <strong>${ship.name}</strong><br>
+                        Waypoint ${index + 1}<br>
+                        ${waypoint[0].toFixed(6)}, ${waypoint[1].toFixed(6)}<br>
+                        Status: ${isCurrent ? 'Current Target' : isPassed ? 'Completed' : 'Pending'}
+                    </div>
+                `);
+                
+                waypointMarkers.push(marker, labelMarker);
+            });
+            
+            // Create route lines
+            // 1. Line from ship's current position to first waypoint (if navigating)
+            if (ship.current_waypoint >= 0 && ship.current_waypoint < ship.waypoints.length) {
+                const currentTarget = ship.waypoints[ship.current_waypoint];
+                const shipToWaypointLine = L.polyline([
+                    [ship.lat, ship.lon],
+                    [currentTarget[0], currentTarget[1]]
+                ], {
+                    color: shipColor,
+                    weight: 3,
+                    opacity: 0.8,
+                    dashArray: '10, 5'
+                }).addTo(this.map);
+                
+                shipToWaypointLine.bindTooltip(`${ship.name} - Active Route`, {
+                    permanent: false,
+                    direction: 'center'
+                });
+                
+                routeLines.push(shipToWaypointLine);
+            }
+            
+            // 2. Lines connecting all waypoints in sequence
+            if (ship.waypoints.length > 1) {
+                for (let i = 0; i < ship.waypoints.length - 1; i++) {
+                    const isCompleted = ship.current_waypoint > i + 1;
+                    const isActive = ship.current_waypoint === i;
+                    
+                    let lineStyle = {
+                        color: shipColor,
+                        weight: 2,
+                        opacity: 0.6,
+                        dashArray: '5, 10'
+                    };
+                    
+                    if (isCompleted) {
+                        lineStyle.color = '#6c757d';
+                        lineStyle.opacity = 0.4;
+                        lineStyle.dashArray = '2, 8';
+                    } else if (isActive) {
+                        lineStyle.weight = 3;
+                        lineStyle.opacity = 0.8;
+                        lineStyle.dashArray = '8, 4';
+                    }
+                    
+                    const routeLine = L.polyline([
+                        ship.waypoints[i],
+                        ship.waypoints[i + 1]
+                    ], lineStyle).addTo(this.map);
+                    
+                    routeLine.bindTooltip(`${ship.name} - WP${i + 1} to WP${i + 2}`, {
+                        permanent: false,
+                        direction: 'center'
+                    });
+                    
+                    routeLines.push(routeLine);
+                }
+            }
+            
+            // 3. Add planned route line (full route overview)
+            const fullRouteLine = L.polyline(ship.waypoints, {
+                color: shipColor,
+                weight: 1,
+                opacity: 0.3,
+                dashArray: '1, 5'
+            }).addTo(this.map);
+            
+            fullRouteLine.bindTooltip(`${ship.name} - Complete Route (${ship.waypoints.length} waypoints)`, {
+                permanent: false,
+                direction: 'center'
+            });
+            
+            routeLines.push(fullRouteLine);
+        }
+        
+        this.mapState.waypoints.set(mmsi, waypointMarkers);
+        this.mapState.routeLines.set(mmsi, routeLines);
     }
 
     showAllWaypoints() {
         this.mapState.showWaypoints = true;
+        document.getElementById('showWaypoints').checked = true;
         this.ships.forEach(ship => this.updateShipWaypoints(ship));
         this.showNotification('All waypoints shown', 'info');
     }
 
     hideAllWaypoints() {
         this.mapState.showWaypoints = false;
-        this.mapState.waypoints.forEach((markers, mmsi) => {
-            markers.forEach(marker => this.map.removeLayer(marker));
+        document.getElementById('showWaypoints').checked = false;
+        
+        // Hide all waypoint markers
+        this.mapState.waypoints.forEach((waypoints, mmsi) => {
+            waypoints.forEach(marker => this.map.removeLayer(marker));
         });
         this.mapState.waypoints.clear();
-        this.showNotification('All waypoints hidden', 'info');
+        
+        // Hide all route lines
+        if (this.mapState.routeLines) {
+            this.mapState.routeLines.forEach((routeLines, mmsi) => {
+                routeLines.forEach(line => this.map.removeLayer(line));
+            });
+            this.mapState.routeLines.clear();
+        }
+        
+        this.showNotification('All waypoints and routes hidden', 'info');
     }
 
     centerOnWaypoints() {
-        const allWaypoints = [];
+        const bounds = L.latLngBounds();
+        let hasWaypoints = false;
+        
         this.ships.forEach(ship => {
             if (ship.waypoints && ship.waypoints.length > 0) {
-                allWaypoints.push(...ship.waypoints);
+                ship.waypoints.forEach(waypoint => {
+                    bounds.extend([waypoint[0], waypoint[1]]);
+                    hasWaypoints = true;
+                });
             }
         });
         
-        if (allWaypoints.length === 0) {
+        if (hasWaypoints) {
+            this.map.fitBounds(bounds, { padding: [20, 20] });
+            this.showNotification('Centered on all routes', 'info');
+        } else {
             this.showNotification('No waypoints to center on', 'warning');
-            return;
-        }
-        
-        const bounds = L.latLngBounds(allWaypoints);
-        this.map.fitBounds(bounds, { padding: [20, 20] });
-        this.showNotification('Centered on all waypoints', 'info');
-    }
-
-    startMapUpdates(interval = 1000) {
-        this.stopMapUpdates();
-        this.mapState.updateInterval = setInterval(() => {
-            this.updateShipPositions();
-        }, interval);
-        console.log(`Started map updates with ${interval}ms interval`);
-    }
-
-    stopMapUpdates() {
-        if (this.mapState.updateInterval) {
-            clearInterval(this.mapState.updateInterval);
-            this.mapState.updateInterval = null;
-            console.log('Stopped map updates');
         }
     }
 
@@ -1731,6 +1970,7 @@ class SIRENWebApp {
             timeout: 3000,
             progressBar: true,
             closeWith: ['click']
+
         }).show();
     }
 }
