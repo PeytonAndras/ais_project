@@ -43,7 +43,7 @@ class SIRENWebApp {
         
         // If no ships loaded from storage, you might want to load sample data
         if (this.ships.length === 0) {
-            console.log('No ships found in storage. You can load sample data from the Scenarios tab.');
+            console.log('No ships found in storage. You can load sample data using the "Load Sample" button in Fleet Management.');
         }
     }
 
