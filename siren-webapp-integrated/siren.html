@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>SIREN - Spoofed Identification & Real-time Emulation Node</title>
+    <meta name="description" content="SIREN Integrated AIS Ship Simulator & Transmitter" />
+    <meta name="author" content="Peyton Andras @ Louisiana State University" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, shrink-to-fit=no"
+    />
+    <link rel="stylesheet" href="./assets/bootstrap.min.css" />
+    <link rel="stylesheet" href="./assets/styles.css" />
+    <link rel="stylesheet" href="./assets/noty.css" />
+    <link rel="stylesheet" href="./assets/bootstrap-v4.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
+    <style>
+      .siren-header {
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        color: white;
+        padding: 20px 0;
+        margin-bottom: 30px;
+        border-radius: 8px;
+      }
+      .ship-card {
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        margin-bottom: 15px;
+        transition: all 0.3s ease;
+      }
+      .ship-card:hover {
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        transform: translateY(-2px);
+      }
+      .ship-active {
+        border-left: 4px solid #28a745;
+      }
+      .transmission-status {
+        padding: 10px;
+        border-radius: 4px;
+        margin: 10px 0;
+        font-family: monospace;
+        font-size: 12px;
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        max-height: 300px;
+        overflow-y: auto;
+      }
+      .nav-tabs .nav-link.active {
+        background-color: #2a5298;
+        border-color: #2a5298;
+        color: white;
+      }
+      .ship-position {
+        font-family: monospace;
+        font-size: 11px;
+        color: #6c757d;
+      }
+      .waypoint-list {
+        max-height: 200px;
+        overflow-y: auto;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        padding: 5px;
+      }
+      .btn-siren {
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        border: none;
+        color: white;
+      }
+      .btn-siren:hover {
+        background: linear-gradient(135deg, #2a5298 0%, #1e3c72 100%);
+        color: white;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container-fluid">
+      <!-- SIREN Header -->
+      <div class="siren-header text-center">
+        <h1><i class="fas fa-ship"></i> SIREN</h1>
+        <p class="mb-0">Spoofed Identification & Real-time Emulation Node</p>
+        <small>Integrated AIS Ship Simulator & Transmitter</small>
+      </div>
+
+      <!-- Main Navigation Tabs -->
+      <ul class="nav nav-tabs" id="sirenTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" id="fleet-tab" data-bs-toggle="tab" data-bs-target="#fleet" type="button" role="tab">
+            <i class="fas fa-ship"></i> Fleet Management
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="simulation-tab" data-bs-toggle="tab" data-bs-target="#simulation" type="button" role="tab">
+            <i class="fas fa-play"></i> Simulation Control
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="transmission-tab" data-bs-toggle="tab" data-bs-target="#transmission" type="button" role="tab">
+            <i class="fas fa-broadcast-tower"></i> Transmission
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="messages-tab" data-bs-toggle="tab" data-bs-target="#messages" type="button" role="tab">
+            <i class="fas fa-envelope"></i> Manual Messages
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="scenarios-tab" data-bs-toggle="tab" data-bs-target="#scenarios" type="button" role="tab">
+            <i class="fas fa-map"></i> Scenarios
+          </button>
+        </li>
+      </ul>
+
+      <!-- Tab Content -->
+      <div class="tab-content" id="sirenTabContent">
+        
+        <!-- Fleet Management Tab -->
+        <div class="tab-pane fade show active" id="fleet" role="tabpanel">
+          <div class="row mt-3">
+            <div class="col-md-8">
+              <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                  <h5 class="mb-0"><i class="fas fa-ship"></i> Ship Fleet</h5>
+                  <div>
+                    <button class="btn btn-siren btn-sm" id="addShipBtn">
+                      <i class="fas fa-plus"></i> Add Ship
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" id="loadFleetBtn">
+                      <i class="fas fa-upload"></i> Load Fleet
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" id="saveFleetBtn">
+                      <i class="fas fa-download"></i> Save Fleet
+                    </button>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div id="shipList">
+                    <!-- Ships will be populated here -->
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="col-md-4">
+              <div class="card">
+                <div class="card-header">
+                  <h5 class="mb-0"><i class="fas fa-edit"></i> Ship Editor</h5>
+                </div>
+                <div class="card-body">
+                  <div id="shipEditor">
+                    <p class="text-muted">Select a ship to edit its properties</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Simulation Control Tab -->
+        <div class="tab-pane fade" id="simulation" role="tabpanel">
+          <div class="row mt-3">
+            <div class="col-md-6">
+              <div class="card">
+                <div class="card-header">
+                  <h5 class="mb-0"><i class="fas fa-cogs"></i> Simulation Settings</h5>
+                </div>
+                <div class="card-body">
+                  <div class="form-group mb-3">
+                    <label for="simulationInterval">Update Interval (seconds)</label>
+                    <input type="number" class="form-control" id="simulationInterval" value="10" min="1" max="300">
+                  </div>
+                  
+                  <div class="form-group mb-3">
+                    <label for="selectedShips">Ships to Simulate</label>
+                    <select multiple class="form-control" id="selectedShips" size="6">
+                      <!-- Will be populated with available ships -->
+                    </select>
+                    <small class="form-text text-muted">Hold Ctrl/Cmd to select multiple ships</small>
+                  </div>
+
+                  <div class="form-group mb-3">
+                    <label for="aisChannel">AIS Channel</label>
+                    <select class="form-control" id="aisChannel">
+                      <option value="A">Channel A (161.975 MHz)</option>
+                      <option value="B">Channel B (162.025 MHz)</option>
+                    </select>
+                  </div>
+
+                  <div class="d-grid gap-2">
+                    <button class="btn btn-success btn-lg" id="startSimulationBtn">
+                      <i class="fas fa-play"></i> Start Simulation
+                    </button>
+                    <button class="btn btn-danger" id="stopSimulationBtn" disabled>
+                      <i class="fas fa-stop"></i> Stop Simulation
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="col-md-6">
+              <div class="card">
+                <div class="card-header">
+                  <h5 class="mb-0"><i class="fas fa-chart-line"></i> Simulation Status</h5>
+                </div>
+                <div class="card-body">
+                  <div class="mb-3">
+                    <strong>Status:</strong> <span id="simulationStatus" class="badge bg-secondary">Stopped</span>
+                  </div>
+                  <div class="mb-3">
+                    <strong>Messages Sent:</strong> <span id="messageCount">0</span>
+                  </div>
+                  <div class="mb-3">
+                    <strong>Active Ships:</strong> <span id="activeShipCount">0</span>
+                  </div>
+                  
+                  <div class="transmission-status" id="simulationLog">
+                    <div class="text-muted">Simulation log will appear here...</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Transmission Tab -->
+        <div class="tab-pane fade" id="transmission" role="tabpanel">
+          <div class="row mt-3">
+            <div class="col-md-6">
+              <div class="card">
+                <div class="card-header">
+                  <h5 class="mb-0"><i class="fas fa-wifi"></i> Connection Status</h5>
+                </div>
+                <div class="card-body">
+                  <div class="mb-3">
+                    <strong>GNU Radio Backend:</strong> 
+                    <span id="connectionStatus" class="badge bg-warning">Disconnected</span>
+                  </div>
+                  <div class="mb-3">
+                    <strong>Websocket Port:</strong> <span id="websocketPort">52002</span>
+                  </div>
+                  <div class="mb-3">
+                    <strong>Total Packets Sent:</strong> <span id="totalPackets">0</span>
+                  </div>
+                  
+                  <div class="d-grid gap-2">
+                    <button class="btn btn-primary" id="connectBtn">
+                      <i class="fas fa-plug"></i> Connect to GNU Radio
+                    </button>
+                    <button class="btn btn-secondary" id="testTransmissionBtn" disabled>
+                      <i class="fas fa-satellite-dish"></i> Send Test Message
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="col-md-6">
+              <div class="card">
+                <div class="card-header">
+                  <h5 class="mb-0"><i class="fas fa-list"></i> Transmission Log</h5>
+                </div>
+                <div class="card-body">
+                  <div class="transmission-status" id="transmissionLog">
+                    <div class="text-muted">Transmission log will appear here...</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Manual Messages Tab (Original AIS Simulator) -->
+        <div class="tab-pane fade" id="messages" role="tabpanel">
+          <div class="row mt-3">
+            <div class="col-md-12">
+              <div class="card">
+                <div class="card-header">
+                  <h5 class="mb-0"><i class="fas fa-edit"></i> Manual AIS Message Composer</h5>
+                  <small class="text-muted">Original AIS Simulator functionality for custom messages</small>
+                </div>
+                <div class="card-body">
+                  <!-- Original AIS simulator form will go here -->
+                  <div id="originalAISForm">
+                    <!-- This will contain the original ais-simulator form -->
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Scenarios Tab -->
+        <div class="tab-pane fade" id="scenarios" role="tabpanel">
+          <div class="row mt-3">
+            <div class="col-md-8">
+              <div class="card">
+                <div class="card-header">
+                  <h5 class="mb-0"><i class="fas fa-map"></i> Maritime Scenarios</h5>
+                </div>
+                <div class="card-body">
+                  <div class="row">
+                    <div class="col-md-4">
+                      <div class="card scenario-card" data-scenario="port">
+                        <div class="card-body text-center">
+                          <i class="fas fa-anchor fa-2x mb-2"></i>
+                          <h6>Port Operations</h6>
+                          <p class="small">Ships entering/leaving port</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="col-md-4">
+                      <div class="card scenario-card" data-scenario="convoy">
+                        <div class="card-body text-center">
+                          <i class="fas fa-ships fa-2x mb-2"></i>
+                          <h6>Convoy Formation</h6>
+                          <p class="small">Multiple ships in formation</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="col-md-4">
+                      <div class="card scenario-card" data-scenario="fishing">
+                        <div class="card-body text-center">
+                          <i class="fas fa-fish fa-2x mb-2"></i>
+                          <h6>Fishing Fleet</h6>
+                          <p class="small">Fishing vessels in operation</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div class="row mt-3">
+                    <div class="col-md-4">
+                      <div class="card scenario-card" data-scenario="search">
+                        <div class="card-body text-center">
+                          <i class="fas fa-search fa-2x mb-2"></i>
+                          <h6>Search & Rescue</h6>
+                          <p class="small">SAR operations with aircraft</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="col-md-4">
+                      <div class="card scenario-card" data-scenario="shipping">
+                        <div class="card-body text-center">
+                          <i class="fas fa-container fa-2x mb-2"></i>
+                          <h6>Shipping Lane</h6>
+                          <p class="small">Commercial shipping traffic</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="col-md-4">
+                      <div class="card scenario-card" data-scenario="custom">
+                        <div class="card-body text-center">
+                          <i class="fas fa-cog fa-2x mb-2"></i>
+                          <h6>Custom Scenario</h6>
+                          <p class="small">Define your own scenario</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="col-md-4">
+              <div class="card">
+                <div class="card-header">
+                  <h5 class="mb-0"><i class="fas fa-info-circle"></i> Scenario Details</h5>
+                </div>
+                <div class="card-body">
+                  <div id="scenarioDetails">
+                    <p class="text-muted">Select a scenario to see details and configuration options</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Add Ship Modal -->
+    <div class="modal fade" id="addShipModal" tabindex="-1">
+      <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Add New Ship</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <form id="addShipForm">
+              <div class="row">
+                <div class="col-md-6">
+                  <div class="mb-3">
+                    <label for="shipName" class="form-label">Ship Name</label>
+                    <input type="text" class="form-control" id="shipName" required>
+                  </div>
+                  <div class="mb-3">
+                    <label for="shipMMSI" class="form-label">MMSI</label>
+                    <input type="number" class="form-control" id="shipMMSI" min="200000000" max="999999999" required>
+                  </div>
+                  <div class="mb-3">
+                    <label for="shipType" class="form-label">Ship Type</label>
+                    <select class="form-control" id="shipType">
+                      <option value="30">Fishing</option>
+                      <option value="60">Passenger</option>
+                      <option value="70">Cargo</option>
+                      <option value="80">Tanker</option>
+                      <option value="52">Tug</option>
+                    </select>
+                  </div>
+                  <div class="mb-3">
+                    <label for="shipLength" class="form-label">Length (m)</label>
+                    <input type="number" class="form-control" id="shipLength" value="30" min="1">
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="mb-3">
+                    <label for="shipLat" class="form-label">Latitude</label>
+                    <input type="number" class="form-control" id="shipLat" step="0.000001" value="39.5">
+                  </div>
+                  <div class="mb-3">
+                    <label for="shipLon" class="form-label">Longitude</label>
+                    <input type="number" class="form-control" id="shipLon" step="0.000001" value="-9.2">
+                  </div>
+                  <div class="mb-3">
+                    <label for="shipCourse" class="form-label">Course (°)</label>
+                    <input type="number" class="form-control" id="shipCourse" min="0" max="359" value="90">
+                  </div>
+                  <div class="mb-3">
+                    <label for="shipSpeed" class="form-label">Speed (knots)</label>
+                    <input type="number" class="form-control" id="shipSpeed" min="0" max="50" value="10">
+                  </div>
+                </div>
+              </div>
+            </form>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-siren" id="saveShipBtn">Add Ship</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="./assets/bootstrap.bundle.min.js"></script>
+    <script src="./assets/noty.min.js"></script>
+    <script src="./assets/ais-simulator.js"></script>
+    <script src="./assets/siren-webapp.js"></script>
+  </body>
+</html>
