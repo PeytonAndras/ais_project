@@ -99,8 +99,8 @@ class SIRENWebApp {
     // =====================================
 
     showAddShipModal() {
-        // Generate random MMSI
-        const randomMMSI = Math.floor(Math.random() * (999999999 - 200000000) + 200000000);
+        // Generate random MMSI (9-digit number, can start with 0)
+        const randomMMSI = Math.floor(Math.random() * 900000000) + 100000000;
         document.getElementById('shipMMSI').value = randomMMSI;
         
         const modal = new bootstrap.Modal(document.getElementById('addShipModal'));
@@ -114,9 +114,16 @@ class SIRENWebApp {
             return;
         }
 
+        // Additional MMSI validation
+        const mmsiValue = document.getElementById('shipMMSI').value;
+        if (mmsiValue.length !== 9) {
+            this.showNotification('MMSI must be exactly 9 digits', 'error');
+            return;
+        }
+
         const ship = {
             name: document.getElementById('shipName').value,
-            mmsi: parseInt(document.getElementById('shipMMSI').value),
+            mmsi: parseInt(mmsiValue),
             ship_type: parseInt(document.getElementById('shipType').value),
             length: parseFloat(document.getElementById('shipLength').value),
             beam: 10, // Default beam
