@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AIS Receiver - Live Ship Tracking</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            margin: 0;
+            font-size: 2em;
+        }
+
+        .header p {
+            margin: 5px 0 0 0;
+            opacity: 0.9;
+        }
+
+        .container {
+            display: flex;
+            height: calc(100vh - 100px);
+        }
+
+        .sidebar {
+            width: 350px;
+            background: white;
+            border-right: 1px solid #ddd;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .map-container {
+            flex: 1;
+            position: relative;
+        }
+
+        #map {
+            height: 100%;
+            width: 100%;
+        }
+
+        .control-panel {
+            padding: 20px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .control-group {
+            margin-bottom: 15px;
+        }
+
+        .control-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 5px;
+            color: #333;
+        }
+
+        .control-group input, .control-group select, .control-group textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .control-group textarea {
+            resize: vertical;
+            min-height: 100px;
+            font-family: monospace;
+        }
+
+        .btn {
+            background: #2a5298;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 5px;
+            margin-bottom: 5px;
+        }
+
+        .btn:hover {
+            background: #1e3c72;
+        }
+
+        .btn-danger {
+            background: #dc3545;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+        }
+
+        .btn-success {
+            background: #28a745;
+        }
+
+        .btn-success:hover {
+            background: #218838;
+        }
+
+        .ship-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        .ship-item {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 8px;
+            font-size: 12px;
+            transition: all 0.2s;
+        }
+
+        .ship-item:hover {
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .ship-mmsi {
+            font-weight: bold;
+            color: #2a5298;
+            margin-bottom: 5px;
+        }
+
+        .ship-details {
+            color: #666;
+            line-height: 1.4;
+        }
+
+        .status {
+            padding: 10px;
+            background: #f8f9fa;
+            border-top: 1px solid #eee;
+            font-size: 12px;
+            font-family: monospace;
+        }
+
+        .status-connected {
+            color: #28a745;
+        }
+
+        .status-disconnected {
+            color: #dc3545;
+        }
+
+        .coordinates {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 11px;
+            z-index: 1000;
+        }
+
+        .ship-marker {
+            width: 20px;
+            height: 20px;
+            background: #007bff;
+            border: 2px solid white;
+            border-radius: 50% 50% 50% 0;
+            transform: rotate(-45deg);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .log-container {
+            height: 150px;
+            overflow-y: auto;
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 11px;
+            line-height: 1.3;
+        }
+
+        .log-entry {
+            margin-bottom: 2px;
+            word-break: break-all;
+        }
+
+        .log-entry.error {
+            color: #dc3545;
+        }
+
+        .log-entry.success {
+            color: #28a745;
+        }
+
+        .legend {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255,255,255,0.9);
+            padding: 10px;
+            border-radius: 4px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            z-index: 1000;
+            font-size: 12px;
+        }
+
+        .legend h4 {
+            margin: 0 0 8px 0;
+            font-size: 14px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            margin-right: 8px;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1><i class="fas fa-satellite-dish"></i> AIS Receiver</h1>
+        <p>Real-time AIS Ship Tracking from RTL-AIS Decoded Strings</p>
+    </div>
+
+    <div class="container">
+        <div class="sidebar">
+            <div class="control-panel">
+                <div class="control-group">
+                    <label>Input Method</label>
+                    <select id="inputMethod">
+                        <option value="manual">Manual Input</option>
+                        <option value="websocket">WebSocket (Live)</option>
+                        <option value="file">File Upload</option>
+                    </select>
+                </div>
+
+                <div class="control-group" id="manualInputGroup">
+                    <label>NMEA/AIS String</label>
+                    <textarea id="nmeaInput" placeholder="Paste NMEA/AIS sentences here...
+Example:
+!AIVDM,1,1,,A,14eG;o@034o8sd<L9i:a;WF>062D,0*7D"></textarea>
+                    <button class="btn" onclick="parseManualInput()">
+                        <i class="fas fa-plus"></i> Add Message
+                    </button>
+                </div>
+
+                <div class="control-group" id="websocketGroup" style="display:none;">
+                    <label>WebSocket URL</label>
+                    <input type="text" id="wsUrl" value="ws://localhost:8080/ais" placeholder="ws://localhost:8080/ais">
+                    <button class="btn btn-success" id="connectBtn" onclick="connectWebSocket()">
+                        <i class="fas fa-plug"></i> Connect
+                    </button>
+                    <button class="btn btn-danger" id="disconnectBtn" onclick="disconnectWebSocket()" style="display:none;">
+                        <i class="fas fa-times"></i> Disconnect
+                    </button>
+                </div>
+
+                <div class="control-group" id="fileInputGroup" style="display:none;">
+                    <label>Upload AIS Log File</label>
+                    <input type="file" id="fileInput" accept=".txt,.log,.nmea" onchange="loadFile()">
+                </div>
+
+                <div class="control-group">
+                    <label>Map Settings</label>
+                    <button class="btn" onclick="centerOnShips()">
+                        <i class="fas fa-crosshairs"></i> Center on Ships
+                    </button>
+                    <button class="btn" onclick="clearAllShips()">
+                        <i class="fas fa-trash"></i> Clear All
+                    </button>
+                </div>
+            </div>
+
+            <div class="ship-list" id="shipList">
+                <div style="text-align: center; color: #666; padding: 20px;">
+                    No ships detected yet. Add AIS messages to see ships appear.
+                </div>
+            </div>
+
+            <div class="status" id="status">
+                <span class="status-disconnected">● Disconnected</span> | Ships: <span id="shipCount">0</span> | Messages: <span id="messageCount">0</span>
+            </div>
+        </div>
+
+        <div class="map-container">
+            <div id="map"></div>
+            <div class="coordinates" id="coordinates">Lat: ---, Lon: ---</div>
+            
+            <div class="legend">
+                <h4>Ship Types</h4>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #007bff;"></div>
+                    <span>Cargo/Tanker</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #28a745;"></div>
+                    <span>Passenger</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ffc107;"></div>
+                    <span>Fishing</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #17a2b8;"></div>
+                    <span>Other</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Message Log Modal (optional) -->
+    <div id="logModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:10000;">
+        <div style="position:absolute; top:10%; left:10%; width:80%; height:80%; background:white; border-radius:8px; padding:20px; overflow:hidden;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+                <h3>Message Log</h3>
+                <button onclick="closeLogModal()" style="background:none; border:none; font-size:24px; cursor:pointer;">×</button>
+            </div>
+            <div class="log-container" id="messageLog" style="height:calc(100% - 60px);"></div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="ais-receiver.js"></script>
+</body>
+</html>
