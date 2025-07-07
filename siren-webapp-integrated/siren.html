@@ -522,11 +522,13 @@
                 <div class="col-md-6">
                   <div class="mb-3">
                     <label for="shipLat" class="form-label">Latitude</label>
-                    <input type="number" class="form-control" id="shipLat" step="0.000001" value="39.5">
+                    <input type="number" class="form-control" id="shipLat" step="0.000001" value="39.5" min="-90" max="90">
+                    <small class="form-text text-muted">Range: -90 to 90 (up to 6 decimal places)</small>
                   </div>
                   <div class="mb-3">
                     <label for="shipLon" class="form-label">Longitude</label>
-                    <input type="number" class="form-control" id="shipLon" step="0.000001" value="-9.2">
+                    <input type="number" class="form-control" id="shipLon" step="0.000001" value="-9.2" min="-180" max="180">
+                    <small class="form-text text-muted">Range: -180 to 180 (up to 6 decimal places)</small>
                   </div>
                   <div class="mb-3">
                     <label for="shipCourse" class="form-label">Course (°)</label>
