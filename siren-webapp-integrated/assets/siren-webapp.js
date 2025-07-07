@@ -1183,7 +1183,7 @@ class SIRENWebApp {
     }
 
     setupMap() {
-        console.log('Setting up map...');
+        console.log('Setting up offline-capable map...');
         
         // Check if Leaflet is available
         if (typeof L === 'undefined') {
@@ -1200,10 +1200,88 @@ class SIRENWebApp {
             return;
         }
         
-        console.log('Map container found, initializing Leaflet map...');
+        console.log('Map container found, initializing offline-capable Leaflet map...');
         
-        // Initialize Leaflet map
-        this.map = L.map('shipMap').setView([39.5, -9.2], 8);
+        // Define offline tile layers (prefer these)
+        const offlineLayers = {
+            'OpenStreetMap (Offline)': L.tileLayer('tiles/openstreetmap/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap (Offline Cache)',
+                maxZoom: 18,
+                minZoom: 1,
+                errorTileUrl: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjU2IiBoZWlnaHQ9IjI1NiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjU2IiBoZWlnaHQ9IjI1NiIgZmlsbD0iI2Y4ZjlmYSIvPjx0ZXh0IHg9IjEyOCIgeT0iMTI4IiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzZjNzU3ZCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPk5vIE9mZmxpbmUgVGlsZTwvdGV4dD48L3N2Zz4='
+            }),
+            'Satellite (Offline)': L.tileLayer('tiles/satellite/{z}/{x}/{y}.png', {
+                attribution: '© Satellite Imagery (Offline Cache)',
+                maxZoom: 18,
+                minZoom: 1,
+                errorTileUrl: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjU2IiBoZWlnaHQ9IjI1NiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjU2IiBoZWlnaHQ9IjI1NiIgZmlsbD0iIzM0NDAyZCIvPjx0ZXh0IHg9IjEyOCIgeT0iMTI4IiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzZjNzU3ZCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPk5vIE9mZmxpbmUgVGlsZTwvdGV4dD48L3N2Zz4='
+            }),
+            'Terrain (Offline)': L.tileLayer('tiles/terrain/{z}/{x}/{y}.png', {
+                attribution: '© Terrain (Offline Cache)',
+                maxZoom: 18,
+                minZoom: 1,
+                errorTileUrl: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjU2IiBoZWlnaHQ9IjI1NiIgeG1zbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjU2IiBoZWlnaHQ9IjI1NiIgZmlsbD0iIzg3ODQ2MSIvPjx0ZXh0IHg9IjEyOCIgeT0iMTI4IiBmb250LWZhbWlseT0ic2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzZjNzU3ZCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPk5vIE9mZmxpbmUgVGlsZTwvdGV4dD48L3N2Zz4='
+            })
+        };
+        
+        // Define online fallback layers
+        const onlineLayers = {
+            'OpenStreetMap (Online)': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 19,
+                subdomains: ['a', 'b', 'c']
+            }),
+            'Satellite (Online)': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                attribution: '© Esri, DigitalGlobe, GeoEye, Earthstar Geographics',
+                maxZoom: 19
+            }),
+            'Terrain (Online)': L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Terrain_Base/MapServer/tile/{z}/{y}/{x}', {
+                attribution: '© Esri, USGS, NOAA',
+                maxZoom: 16
+            }),
+            'Nautical (Online)': L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+                attribution: '© OpenSeaMap contributors',
+                maxZoom: 18
+            })
+        };
+        
+        // Detect connection status
+        const isOnline = navigator.onLine;
+        
+        // Combine layers based on connection status
+        this.mapLayers = isOnline ? {...offlineLayers, ...onlineLayers} : offlineLayers;
+        
+        // Initialize Leaflet map with offline-first approach
+        const defaultLayer = offlineLayers['OpenStreetMap (Offline)'];
+        this.map = L.map('shipMap', {
+            center: [39.5, -9.2], // Portugal coast
+            zoom: 10,
+            layers: [defaultLayer],
+            zoomControl: false // We'll add custom controls
+        });
+        
+        // Add custom zoom control
+        L.control.zoom({
+            position: 'bottomright'
+        }).addTo(this.map);
+        
+        // Add layer control
+        const layerControl = L.control.layers(this.mapLayers, {}, {
+            position: 'topright',
+            collapsed: true
+        }).addTo(this.map);
+        
+        // Add scale control
+        L.control.scale({
+            position: 'bottomleft',
+            imperial: false
+        }).addTo(this.map);
+        
+        // Add connection status indicator
+        this.addConnectionStatus();
+        
+        // Add mouse coordinates display
+        this.addMouseCoordinates();
         
         // Map state
         this.mapState = {
@@ -1217,34 +1295,16 @@ class SIRENWebApp {
             showWaypoints: true,
             autoFollow: false,
             maxTrackPoints: 20,
-            selectedShip: null
+            selectedShip: null,
+            isOnline: isOnline
         };
-
-        // Add different tile layers
-        this.mapLayers = {
-            osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap contributors'
-            }),
-            satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-                attribution: '© Esri'
-            }),
-            terrain: L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenTopoMap contributors'
-            }),
-            nautical: L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
-                attribution: '© OpenSeaMap contributors'
-            })
-        };
-
-        // Set default layer
-        this.mapLayers.osm.addTo(this.map);
 
         // Add map event listeners
         this.map.on('click', (e) => this.onMapClick(e));
         this.map.on('mousemove', (e) => this.updateMouseCoordinates(e));
         this.map.on('zoomend', () => this.updateZoomDisplay());
 
-        // Create ship icon
+        // Create ship icons
         this.shipIcon = L.divIcon({
             className: 'ship-marker',
             html: '<i class="fas fa-ship"></i>',
@@ -1258,8 +1318,12 @@ class SIRENWebApp {
             iconSize: [28, 28],
             iconAnchor: [14, 14]
         });
+        
+        // Listen for connection changes
+        window.addEventListener('online', () => this.handleConnectionChange(true));
+        window.addEventListener('offline', () => this.handleConnectionChange(false));
 
-        console.log('Map initialized');
+        console.log(`Offline-capable map initialized (${isOnline ? 'Online' : 'Offline'} mode)`);
     }
 
     setupMapEventListeners() {
@@ -1311,9 +1375,38 @@ class SIRENWebApp {
             }
         });
 
-        // Add new layer
+        // Add new layer - handle both old and new naming conventions
+        let selectedLayer = null;
+        
+        // Try exact match first
         if (this.mapLayers[type]) {
-            this.mapLayers[type].addTo(this.map);
+            selectedLayer = this.mapLayers[type];
+        } else {
+            // Try to find layer by partial name match
+            for (const [layerName, layer] of Object.entries(this.mapLayers)) {
+                if (layerName.toLowerCase().includes(type.toLowerCase())) {
+                    selectedLayer = layer;
+                    break;
+                }
+            }
+        }
+        
+        // Fallback to first available offline layer
+        if (!selectedLayer) {
+            const offlineLayers = Object.entries(this.mapLayers).filter(([name]) => 
+                name.includes('Offline')
+            );
+            if (offlineLayers.length > 0) {
+                selectedLayer = offlineLayers[0][1];
+                console.log(`Fallback to offline layer: ${offlineLayers[0][0]}`);
+            }
+        }
+        
+        if (selectedLayer) {
+            selectedLayer.addTo(this.map);
+        } else {
+            console.error('No suitable map layer found');
+            this.showNotification('Map layer not available', 'error');
         }
     }
 
@@ -1972,6 +2065,119 @@ class SIRENWebApp {
             closeWith: ['click']
 
         }).show();
+    }
+
+    // Add connection status indicator
+    addConnectionStatus() {
+        const connectionControl = L.control({position: 'topleft'});
+        
+        connectionControl.onAdd = function(map) {
+            const div = L.DomUtil.create('div', 'connection-status');
+            div.style.cssText = `
+                background: rgba(255,255,255,0.95);
+                padding: 8px 12px;
+                border-radius: 4px;
+                font-size: 12px;
+                font-weight: bold;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                border: 1px solid #ddd;
+                margin: 10px;
+            `;
+            
+            const updateStatus = () => {
+                const isOnline = navigator.onLine;
+                const iconClass = isOnline ? 'fa-wifi' : 'fa-wifi-slash';
+                const iconColor = isOnline ? '#28a745' : '#dc3545';
+                const statusText = isOnline ? 'Online' : 'Offline';
+                const bgColor = isOnline ? '#d4edda' : '#f8d7da';
+                
+                div.innerHTML = `
+                    <i class="fas ${iconClass}" style="color: ${iconColor}; margin-right: 6px;"></i>
+                    <span style="color: #212529;">${statusText}</span>
+                `;
+                div.style.backgroundColor = bgColor;
+            };
+            
+            updateStatus();
+            
+            // Update status when connection changes
+            window.addEventListener('online', updateStatus);
+            window.addEventListener('offline', updateStatus);
+            
+            return div;
+        };
+        
+        connectionControl.addTo(this.map);
+    }
+
+    // Add mouse coordinates display
+    addMouseCoordinates() {
+        const coordsControl = L.control({position: 'bottomright'});
+        
+        coordsControl.onAdd = function(map) {
+            const div = L.DomUtil.create('div', 'mouse-coordinates');
+            div.style.cssText = `
+                background: rgba(0,0,0,0.8);
+                color: white;
+                padding: 4px 8px;
+                border-radius: 3px;
+                font-family: 'Courier New', monospace;
+                font-size: 11px;
+                margin-bottom: 45px;
+                margin-right: 10px;
+                min-width: 180px;
+                text-align: center;
+            `;
+            div.innerHTML = 'Lat: ---.------, Lon: ---.------';
+            
+            return div;
+        };
+        
+        coordsControl.addTo(this.map);
+        
+        // Update coordinates on mouse move
+        this.map.on('mousemove', (e) => {
+            const coords = document.querySelector('.mouse-coordinates');
+            if (coords) {
+                const lat = e.latlng.lat.toFixed(6);
+                const lon = e.latlng.lng.toFixed(6);
+                coords.innerHTML = `Lat: ${lat}, Lon: ${lon}`;
+            }
+        });
+        
+        // Clear coordinates when mouse leaves map
+        this.map.on('mouseout', () => {
+            const coords = document.querySelector('.mouse-coordinates');
+            if (coords) {
+                coords.innerHTML = 'Lat: ---.------, Lon: ---.------';
+            }
+        });
+    }
+
+    // Handle connection changes
+    handleConnectionChange(isOnline) {
+        const message = isOnline ? 
+            'Internet connection restored - Online maps available' : 
+            'Internet connection lost - Using offline maps only';
+        const type = isOnline ? 'success' : 'warning';
+        
+        this.showNotification(message, type);
+        
+        if (this.mapState) {
+            this.mapState.isOnline = isOnline;
+        }
+        
+        // Update available layers
+        this.updateAvailableLayers(isOnline);
+        
+        console.log(`Connection status changed: ${isOnline ? 'Online' : 'Offline'}`);
+    }
+
+    // Update available map layers based on connection status
+    updateAvailableLayers(isOnline) {
+        // This could refresh the layer control to show/hide online layers
+        // For now, we'll just log the change
+        console.log(`Map layers updated for ${isOnline ? 'online' : 'offline'} mode`);
     }
 }
 
