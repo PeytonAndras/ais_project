@@ -1,0 +1,9 @@
+from pyais import decode
+
+nmea_message = "!AIVDM,1,1,,A,1=?eN>0P2FwEgKhF`Du0m@b8000000,0*32"
+
+# Decode the message
+msg = decode(nmea_message)
+
+# Print as dictionary
+print(msg.asdict())
