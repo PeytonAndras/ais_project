@@ -752,6 +752,10 @@ class SIRENWebApp {
                 );
             }
 
+            // Save ship positions to localStorage to persist simulation changes
+            // This ensures that tab switches don't revert to old positions
+            this.saveShipsToStorage();
+
             // Capture ship state snapshot at the time of scheduling to avoid race conditions
             const shipSnapshot = {
                 name: ship.name,
@@ -815,9 +819,7 @@ class SIRENWebApp {
             }, i * 500); // Delay between ships to avoid message collisions
         });
 
-        // Save updated ship positions to storage - CRITICAL for persistence
-        // This ensures that simulation changes are permanently saved and won't be
-        // overwritten when tabs are switched or UI is reloaded
+        // Save updated ship positions to storage
         this.saveShipsToStorage();
         
         const stepEndTime = new Date().toISOString().substr(11, 12);
@@ -951,6 +953,12 @@ class SIRENWebApp {
         
         // Update heading to match course
         ship.heading = ship.course;
+        
+        // Save ship positions to localStorage during simulation to ensure changes persist
+        // This is important for preventing tab switches from reverting to old positions
+        if (this.simulation && this.simulation.active) {
+            this.saveShipsToStorage();
+        }
     }
 
     moveShipWithWaypoints(ship) {
@@ -978,6 +986,11 @@ class SIRENWebApp {
                 ship.course = newCourse;
                 ship.heading = newCourse; // Keep heading synchronized with course
                 console.log(`${ship.name}: Set course to waypoint ${ship.current_waypoint + 1}: ${ship.course.toFixed(1)}°`);
+                
+                // Save ship state after waypoint change during simulation
+                if (this.simulation && this.simulation.active) {
+                    this.saveShipsToStorage();
+                }
             } else {
                 console.log(`${ship.name}: All waypoints reached`);
                 ship.current_waypoint = -1; // Stop navigation
