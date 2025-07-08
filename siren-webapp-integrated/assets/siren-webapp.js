@@ -815,7 +815,9 @@ class SIRENWebApp {
             }, i * 500); // Delay between ships to avoid message collisions
         });
 
-        // Save updated ship positions to storage
+        // Save updated ship positions to storage - CRITICAL for persistence
+        // This ensures that simulation changes are permanently saved and won't be
+        // overwritten when tabs are switched or UI is reloaded
         this.saveShipsToStorage();
         
         const stepEndTime = new Date().toISOString().substr(11, 12);
@@ -1774,7 +1776,7 @@ class SIRENWebApp {
             const lat = parseFloat(coordMatch[1]);
             const lon = parseFloat(coordMatch[2]);
             this.map.setView([lat, lon], 10);
-            this.addSearchMarker(lat, lon, 'Searched Location');
+                       this.addSearchMarker(lat, lon, 'Searched Location');
             return;
         }
 
