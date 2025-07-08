@@ -715,7 +715,9 @@ class SIRENWebApp {
         const lonChange = distanceNM * Math.sin(ship.course * Math.PI / 180) / (60 * Math.cos(ship.lat * Math.PI / 180));
         
         // Debug logging for movement calculation
-        console.log(`${ship.name}: timeStep=${timeStep.toFixed(4)}h, distanceNM=${distanceNM.toFixed(4)}, latChange=${latChange.toFixed(6)}, lonChange=${lonChange.toFixed(6)}`);
+        if (distanceNM > 0) {
+            console.log(`${ship.name}: Moving ${distanceNM.toFixed(4)}NM over ${timeStep.toFixed(4)}h at ${ship.course}°, latΔ=${latChange.toFixed(6)}, lonΔ=${lonChange.toFixed(6)}`);
+        }
         
         ship.lat += latChange;
         ship.lon += lonChange;
@@ -816,16 +818,26 @@ class SIRENWebApp {
         const course = Math.max(0, Math.min(359.9, ship.course || 0));
         const speed = Math.max(0, Math.min(102.2, ship.speed || 0));
         const heading = Math.max(0, Math.min(359, ship.heading || ship.course || 0));
+        const status = Math.max(0, Math.min(15, ship.status || 0));
+        const mmsi = Math.max(100000000, Math.min(999999999, ship.mmsi || 123456789));
         
         // Log the exact values being encoded (for debugging)
-        console.log(`Generating AIS for ${ship.name}: lat=${lat}, lon=${lon}, course=${course}, speed=${speed}, heading=${heading}`);
+        console.log(`Generating AIS for ${ship.name}: MMSI=${mmsi}, lat=${lat}, lon=${lon}, course=${course}, speed=${speed}, heading=${heading}, status=${status}`);
+        
+        // Validate that we have reasonable values
+        if (lat === 0 && lon === 0) {
+            console.warn(`${ship.name}: Ship at origin (0,0) - check position initialization`);
+        }
+        if (course === 0 && speed > 0) {
+            console.warn(`${ship.name}: Ship has speed ${speed} but course is 0 - check movement logic`);
+        }
         
         // Create AIS Type 1 Position Report
         const fields = {
             msg_type: 1,
             repeat: 0,
-            mmsi: ship.mmsi,
-            nav_status: ship.status || 0,
+            mmsi: mmsi,
+            nav_status: status,
             rot: ship.turn || 0,
             sog: speed,
             accuracy: ship.accuracy || 1,
@@ -845,34 +857,44 @@ class SIRENWebApp {
     }
 
     buildAISPayload(fields) {
-        // Simplified AIS payload generation
-        // In a real implementation, this would follow the complete AIS specification
+        // AIS payload generation following AIS specification
         let bits = '';
         
         // Message type (6 bits)
         bits += this.toBits(fields.msg_type, 6);
-        // Repeat indicator (2 bits)
+        // Repeat indicator (2 bits) 
         bits += this.toBits(fields.repeat, 2);
         // MMSI (30 bits)
         bits += this.toBits(fields.mmsi, 30);
         // Navigation status (4 bits)
         bits += this.toBits(fields.nav_status, 4);
-        // Rate of turn (8 bits)
-        bits += this.toBits(Math.round(fields.rot) + 128, 8);
-        // Speed over ground (10 bits) - in 0.1 knot resolution
-        bits += this.toBits(Math.round(fields.sog * 10), 10);
+        // Rate of turn (8 bits) - signed value with offset
+        const rotValue = Math.max(-127, Math.min(127, Math.round(fields.rot)));
+        bits += this.toBits(rotValue + 128, 8);
+        // Speed over ground (10 bits) - in 0.1 knot resolution, max 102.2 knots
+        const sogValue = Math.max(0, Math.min(1022, Math.round(fields.sog * 10)));
+        bits += this.toBits(sogValue, 10);
         // Position accuracy (1 bit)
         bits += this.toBits(fields.accuracy, 1);
-        // Longitude (28 bits) - in 1/600000 minute resolution
-        const lonValue = Math.round(fields.lon * 600000);
-        bits += this.toBits(lonValue, 28);
-        // Latitude (27 bits) - in 1/600000 minute resolution
-        const latValue = Math.round(fields.lat * 600000);
-        bits += this.toBits(latValue, 27);
-        // Course over ground (12 bits) - in 0.1 degree resolution
-        bits += this.toBits(Math.round(fields.cog * 10), 12);
-        // True heading (9 bits) - in 1 degree resolution
-        bits += this.toBits(Math.round(fields.hdg), 9);
+        
+        // Longitude (28 bits) - in 1/600000 minute resolution, signed
+        let lonValue = Math.round(fields.lon * 600000);
+        // Clamp to valid range
+        lonValue = Math.max(-180*600000, Math.min(180*600000, lonValue));
+        bits += this.toSignedBits(lonValue, 28);
+        
+        // Latitude (27 bits) - in 1/600000 minute resolution, signed  
+        let latValue = Math.round(fields.lat * 600000);
+        // Clamp to valid range
+        latValue = Math.max(-90*600000, Math.min(90*600000, latValue));
+        bits += this.toSignedBits(latValue, 27);
+        
+        // Course over ground (12 bits) - in 0.1 degree resolution, 0-3599 (0-359.9°)
+        const cogValue = Math.max(0, Math.min(3599, Math.round(fields.cog * 10)));
+        bits += this.toBits(cogValue, 12);
+        // True heading (9 bits) - in 1 degree resolution, 0-359
+        const hdgValue = Math.max(0, Math.min(359, Math.round(fields.hdg)));
+        bits += this.toBits(hdgValue, 9);
         // Time stamp (6 bits)
         bits += this.toBits(fields.timestamp, 6);
         // Regional (4 bits)
@@ -884,6 +906,9 @@ class SIRENWebApp {
         // Communication state (19 bits)
         bits += this.toBits(0, 19);
 
+        // Debug: log the total bit length
+        console.log(`AIS bit string length: ${bits.length} bits`);
+        
         // Pad to multiple of 6 bits
         while (bits.length % 6 !== 0) {
             bits += '0';
@@ -900,7 +925,34 @@ class SIRENWebApp {
     }
 
     toBits(value, length) {
-        // Handle negative numbers (two's complement)
+        // Handle unsigned values only
+        if (value < 0) {
+            console.warn(`toBits called with negative value ${value}, using 0`);
+            value = 0;
+        }
+        const maxValue = (1 << length) - 1;
+        if (value > maxValue) {
+            console.warn(`toBits: value ${value} exceeds max ${maxValue} for ${length} bits`);
+            value = maxValue;
+        }
+        return value.toString(2).padStart(length, '0');
+    }
+
+    toSignedBits(value, length) {
+        // Handle signed numbers (two's complement)
+        const maxValue = (1 << (length - 1)) - 1;
+        const minValue = -(1 << (length - 1));
+        
+        if (value > maxValue) {
+            console.warn(`toSignedBits: value ${value} exceeds max ${maxValue} for ${length} bits`);
+            value = maxValue;
+        }
+        if (value < minValue) {
+            console.warn(`toSignedBits: value ${value} below min ${minValue} for ${length} bits`);
+            value = minValue;
+        }
+        
+        // Convert negative to unsigned representation
         if (value < 0) {
             value = (1 << length) + value;
         }
