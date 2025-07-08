@@ -424,14 +424,15 @@ class SIRENWebApp {
                         <button type="button" class="btn btn-outline-warning" onclick="sirenApp.clearWaypoints(${index})" title="Clear All">
                             <i class="fas fa-trash"></i> Clear All
                         </button>
-                        <!-- Begin autonomous waypoint navigation -->
-                        <button type="button" class="btn btn-outline-success" onclick="sirenApp.startWaypointNavigation(${index})" title="Start Navigation">
-                            <i class="fas fa-play"></i> Start Nav
-                        </button>
                     </div>
                     
                     <!-- Current navigation status display -->
-                    <small class="text-muted">Ship will navigate to waypoints in order. Current: ${ship.current_waypoint >= 0 ? ship.current_waypoint + 1 : 'None'}</small>
+                    <small class="text-muted">
+                        ${ship.waypoints && ship.waypoints.length > 0 
+                            ? `Ship will automatically follow ${ship.waypoints.length} waypoints in a continuous loop. Current: ${ship.current_waypoint >= 0 ? ship.current_waypoint + 1 : 'Auto-start on simulation'}`
+                            : 'No waypoints set - ship will move in straight line'
+                        }
+                    </small>
                 </div>
                 
                 <!-- FORM ACTION BUTTONS -->
@@ -1031,8 +1032,17 @@ class SIRENWebApp {
     moveShip(ship) {
         if (ship.speed <= 0) return;
 
-        // Check if ship is following waypoints
-        if (ship.waypoints && ship.waypoints.length > 0 && ship.current_waypoint >= 0) {
+        // Check if ship has waypoints defined - if so, always follow them
+        if (ship.waypoints && ship.waypoints.length > 0) {
+            // Auto-start waypoint navigation if not already active
+            if (ship.current_waypoint < 0) {
+                ship.current_waypoint = 0;
+                // Calculate initial course to first waypoint
+                const firstWaypoint = ship.waypoints[0];
+                ship.course = this.calculateBearing(ship.lat, ship.lon, firstWaypoint[0], firstWaypoint[1]);
+                ship.heading = ship.course;
+                console.log(`${ship.name}: Auto-started waypoint navigation to ${ship.waypoints.length} waypoints`);
+            }
             this.moveShipWithWaypoints(ship);
         } else {
             this.moveShipStraight(ship);
@@ -1157,10 +1167,14 @@ class SIRENWebApp {
 
     moveShipWithWaypoints(ship) {
         if (ship.current_waypoint >= ship.waypoints.length) {
-            // All waypoints reached, stop navigation
-            ship.current_waypoint = -1;
-            console.log(`${ship.name}: All waypoints reached, stopping navigation`);
-            return;
+            // All waypoints reached, restart from beginning (loop navigation)
+            ship.current_waypoint = 0;
+            console.log(`${ship.name}: All waypoints reached, restarting navigation loop`);
+            
+            // Set course to first waypoint again
+            const firstWaypoint = ship.waypoints[0];
+            ship.course = this.calculateBearing(ship.lat, ship.lon, firstWaypoint[0], firstWaypoint[1]);
+            ship.heading = ship.course;
         }
 
         const currentWaypoint = ship.waypoints[ship.current_waypoint];
@@ -1186,9 +1200,8 @@ class SIRENWebApp {
                     this.saveShipsToStorage();
                 }
             } else {
-                console.log(`${ship.name}: All waypoints reached`);
-                ship.current_waypoint = -1; // Stop navigation
-                return;
+                // This will be handled by the next moveShipWithWaypoints call (restart loop)
+                console.log(`${ship.name}: Reached final waypoint, will restart on next step`);
             }
         } else {
             // Update course continuously to point toward current waypoint
