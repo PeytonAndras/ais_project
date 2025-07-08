@@ -1846,7 +1846,108 @@ class SIRENWebApp {
         }
     }
 
-    loadFleet() {
+    /**
+     * Clear all ship data from browser localStorage.
+     * This completely removes the stored ship fleet data.
+     */
+    clearStorage() {
+        localStorage.removeItem('siren-ships');
+        console.log('Browser storage cleared');
+        this.showNotification('Storage cleared', 'info');
+    }
+
+    /**
+     * Reinitialize browser storage with current ship data.
+     * This overwrites any existing stored data with the current fleet.
+     */
+    reinitializeStorage() {
+        this.clearStorage();
+        this.saveShipsToStorage();
+        console.log('Browser storage reinitialized with current fleet');
+        this.showNotification('Storage reinitialized', 'success');
+    }
+
+    /**
+     * Reset the entire application to a clean state.
+     * This clears all ships, resets the UI, and clears storage.
+     */
+    resetToCleanState() {
+        if (confirm('This will remove all ships and reset the application. Are you sure?')) {
+            // Stop simulation if running
+            if (this.simulation.active) {
+                this.stopSimulation();
+            }
+            
+            // Clear all ships
+            this.ships = [];
+            
+            // Clear storage
+            this.clearStorage();
+            
+            // Reset UI
+            this.updateUI();
+            
+            // Clear map markers if map exists
+            if (this.map && this.mapState) {
+                this.mapState.shipMarkers.forEach(marker => this.map.removeLayer(marker));
+                this.mapState.shipMarkers.clear();
+                
+                if (this.mapState.waypoints) {
+                    this.mapState.waypoints.forEach(markers => {
+                        markers.forEach(marker => this.map.removeLayer(marker));
+                    });
+                    this.mapState.waypoints.clear();
+                }
+                
+                if (this.mapState.routeLines) {
+                    this.mapState.routeLines.forEach(lines => {
+                        lines.forEach(line => this.map.removeLayer(line));
+                    });
+                    this.mapState.routeLines.clear();
+                }
+                
+                if (this.mapState.trackLines) {
+                    this.mapState.trackLines.forEach(line => this.map.removeLayer(line));
+                    this.mapState.trackLines.clear();
+                }
+                
+                this.mapState.shipTracks.clear();
+            }
+            
+            console.log('Application reset to clean state');
+            this.showNotification('Application reset successfully', 'success');
+        }
+    }
+
+    /**
+     * Backup current storage to a downloadable JSON file.
+     * This creates a backup of the current localStorage data.
+     */
+    backupStorage() {
+        const storageData = {
+            ships: this.ships,
+            timestamp: new Date().toISOString(),
+            version: '1.0'
+        };
+        
+        const data = JSON.stringify(storageData, null, 2);
+        const blob = new Blob([data], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `siren-storage-backup-${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+        
+        URL.revokeObjectURL(url);
+        this.showNotification('Storage backup created', 'success');
+    }
+
+    /**
+     * Restore storage from a backup file.
+     * This loads ship data from a previously created backup.
+     */
+    restoreStorage() {
         const input = document.createElement('input');
         input.type = 'file';
         input.accept = '.json';
@@ -1856,12 +1957,20 @@ class SIRENWebApp {
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     try {
-                        this.ships = JSON.parse(e.target.result);
-                        this.saveShipsToStorage();
-                        this.updateUI();
-                        this.showNotification('Fleet loaded successfully', 'success');
+                        const backupData = JSON.parse(e.target.result);
+                        
+                        // Validate backup structure
+                        if (backupData.ships && Array.isArray(backupData.ships)) {
+                            this.ships = backupData.ships;
+                            this.reinitializeStorage();
+                            this.updateUI();
+                            this.showNotification('Storage restored successfully', 'success');
+                        } else {
+                            throw new Error('Invalid backup file structure');
+                        }
                     } catch (error) {
-                        this.showNotification('Invalid fleet file', 'error');
+                        console.error('Failed to restore storage:', error);
+                        this.showNotification('Invalid backup file', 'error');
                     }
                 };
                 reader.readAsText(file);
@@ -1870,89 +1979,51 @@ class SIRENWebApp {
         input.click();
     }
 
-    saveFleet() {
-        const data = JSON.stringify(this.ships, null, 2);
-        const blob = new Blob([data], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
+    /**
+     * Get storage usage information.
+     * Returns details about localStorage usage and available space.
+     */
+    getStorageInfo() {
+        const storageKey = 'siren-ships';
+        const stored = localStorage.getItem(storageKey);
         
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'siren-fleet.json';
-        a.click();
+        const info = {
+            hasData: !!stored,
+            shipCount: this.ships.length,
+            storageSize: stored ? new Blob([stored]).size : 0,
+            storageDate: stored ? new Date(JSON.parse(stored).timestamp || Date.now()) : null
+        };
         
-        URL.revokeObjectURL(url);
-        this.showNotification('Fleet saved', 'success');
-    }
-
-    loadSampleData() {
-        // Load sample ships for testing
-        const sampleShips = [
-            {
-                name: "Atlantic Trader",
-                mmsi: 234567890,
-                ship_type: 70,
-                length: 180.0,
-                beam: 28.0,
-                lat: 39.52,
-                lon: -9.18,
-                course: 45,
-                speed: 12.0,
-                status: 0,
-                turn: 0,
-                destination: "LISBON",
-                accuracy: 1,
-                heading: 45,
-                waypoints: [[39.55, -9.15], [39.58, -9.12]],
-                current_waypoint: -1,
-                waypoint_radius: 0.01
-            },
-            {
-                name: "Fishing Vessel Maria",
-                mmsi: 345678901,
-                ship_type: 30,
-                length: 25.0,
-                beam: 8.0,
-                lat: 39.48,
-                lon: -9.22,
-                course: 180,
-                speed: 6.0,
-                status: 7,
-                turn: 0,
-                destination: "",
-                accuracy: 1,
-                heading: 180,
-                waypoints: [],
-                current_waypoint: -1,
-                waypoint_radius: 0.01
-            },
-            {
-                name: "Cargo Express",
-                mmsi: 456789012,
-                ship_type: 70,
-                length: 150.0,
-                beam: 22.0,
-                lat: 39.60,
-                lon: -9.10,
-                course: 270,
-                speed: 15.0,
-                status: 0,
-                turn: 0,
-                destination: "PORTO",
-                accuracy: 1,
-                heading: 270,
-                waypoints: [[39.62, -9.10], [39.65, -9.15]],
-                current_waypoint: -1,
-                waypoint_radius: 0.01
+        // Estimate localStorage usage (rough approximation)
+        let totalSize = 0;
+        for (let key in localStorage) {
+            if (localStorage.hasOwnProperty(key)) {
+                totalSize += localStorage[key].length;
             }
-        ];
-
-        this.ships = sampleShips;
-        this.saveShipsToStorage();
-        this.updateUI();
-        this.showNotification('Sample fleet loaded successfully', 'success');
-        console.log(`Loaded ${this.ships.length} sample ships`);
+        }
+        info.totalLocalStorageSize = totalSize;
+        
+        return info;
     }
 
+    /**
+     * Display storage information in the console.
+     * Useful for debugging storage-related issues.
+     */
+    showStorageInfo() {
+        const info = this.getStorageInfo();
+        console.log('=== STORAGE INFORMATION ===');
+        console.log(`Ships in memory: ${info.shipCount}`);
+        console.log(`Storage data exists: ${info.hasData}`);
+        console.log(`Storage size: ${(info.storageSize / 1024).toFixed(2)} KB`);
+        console.log(`Total localStorage usage: ${(info.totalLocalStorageSize / 1024).toFixed(2)} KB`);
+        if (info.storageDate) {
+            console.log(`Last saved: ${info.storageDate.toLocaleString()}`);
+        }
+        console.log('Ships data:', this.ships);
+        
+        this.showNotification(`Storage: ${info.shipCount} ships, ${(info.storageSize / 1024).toFixed(2)} KB`, 'info');
+    }
     // =====================================
     // =====================================
     // INTERACTIVE MAP FUNCTIONALITY
