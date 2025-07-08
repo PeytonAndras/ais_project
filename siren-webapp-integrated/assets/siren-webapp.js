@@ -17,7 +17,9 @@ class SIRENWebApp {
             interval: 10,
             intervalId: null,
             messageCount: 0,
-            startTime: null
+            startTime: null,
+            lockedSelection: [],
+            selectedShipDetails: []
         };
         this.websocket = null;
         this.isConnected = false;
@@ -587,17 +589,46 @@ class SIRENWebApp {
         const selectedOptions = Array.from(document.getElementById('selectedShips').selectedOptions);
         if (selectedOptions.length === 0) {
             this.showNotification('Please select at least one ship for simulation', 'warning');
+            this.simulation.active = false;
             return;
         }
-        this.selectedShips = selectedOptions.map(option => parseInt(option.value));
         
-        // Debug: Log which ships are selected
+        // Lock the selection to prevent changes during simulation
+        this.selectedShips = selectedOptions.map(option => parseInt(option.value));
+        this.simulation.lockedSelection = [...this.selectedShips]; // Create a locked copy
+        
+        // Disable the ship selection UI during simulation
+        document.getElementById('selectedShips').disabled = true;
+        
+        // Critical debugging: Log which ships are selected
+        console.log('=== SIMULATION STARTED ===');
         console.log(`Selected ship indices: [${this.selectedShips.join(', ')}]`);
+        console.log(`Locked selection: [${this.simulation.lockedSelection.join(', ')}]`);
+        
+        const selectedShipDetails = [];
         this.selectedShips.forEach(shipIndex => {
             const ship = this.ships[shipIndex];
             if (ship) {
-                console.log(`  - ${ship.name} (MMSI: ${ship.mmsi})`);
+                selectedShipDetails.push({
+                    index: shipIndex,
+                    name: ship.name,
+                    mmsi: ship.mmsi,
+                    lat: ship.lat,
+                    lon: ship.lon
+                });
+                console.log(`  - Ship ${shipIndex}: ${ship.name} (MMSI: ${ship.mmsi})`);
+            } else {
+                console.error(`  - Ship ${shipIndex}: NOT FOUND!`);
             }
+        });
+        
+        // Store selected ship details for validation
+        this.simulation.selectedShipDetails = selectedShipDetails;
+        
+        // Log all ship MMSIs for comparison
+        console.log('All ships in fleet:');
+        this.ships.forEach((ship, index) => {
+            console.log(`  ${index}: ${ship.name} (MMSI: ${ship.mmsi}) - ${this.selectedShips.includes(index) ? 'SELECTED' : 'not selected'}`);
         });
 
         // Update UI
@@ -611,7 +642,7 @@ class SIRENWebApp {
         this.runSimulationStep();
         this.simulation.intervalId = setInterval(() => this.runSimulationStep(), this.simulation.interval * 1000);
 
-        this.logMessage('simulationLog', `Started simulation with ${this.selectedShips.length} ships`);
+        this.logMessage('simulationLog', `Started simulation with ${this.selectedShips.length} ships: ${selectedShipDetails.map(s => s.name).join(', ')}`);
         this.showNotification('Simulation started', 'success');
     }
 
@@ -623,12 +654,17 @@ class SIRENWebApp {
             this.simulation.intervalId = null;
         }
 
+        // Clear locked selection and re-enable ship selection UI
+        this.simulation.lockedSelection = [];
+        document.getElementById('selectedShips').disabled = false;
+
         // Update UI
         document.getElementById('startSimulationBtn').disabled = false;
         document.getElementById('stopSimulationBtn').disabled = true;
         document.getElementById('simulationStatus').textContent = 'Stopped';
         document.getElementById('simulationStatus').className = 'badge bg-secondary';
 
+        console.log('=== SIMULATION STOPPED ===');
         this.logMessage('simulationLog', 'Simulation stopped');
         this.showNotification('Simulation stopped', 'info');
     }
@@ -639,15 +675,36 @@ class SIRENWebApp {
         const channel = document.getElementById('aisChannel').value;
         const stepStartTime = new Date().toISOString().substr(11, 12);
         
-        this.logMessage('simulationLog', `${stepStartTime} === Simulation Step Started ===`);
+        // CRITICAL: Use the locked selection to prevent changes during simulation
+        const activeSelection = this.simulation.lockedSelection || this.selectedShips;
         
-        // Process all ships - move them first, then transmit with proper timing
-        this.selectedShips.forEach((shipIndex, i) => {
+        console.log('=== SIMULATION STEP START ===');
+        console.log(`Step time: ${stepStartTime}`);
+        console.log(`Active selection: [${activeSelection.join(', ')}]`);
+        console.log(`Current selectedShips: [${this.selectedShips.join(', ')}]`);
+        console.log(`Locked selection: [${(this.simulation.lockedSelection || []).join(', ')}]`);
+        
+        this.logMessage('simulationLog', `${stepStartTime} === Simulation Step Started ===`);
+        this.logMessage('simulationLog', `Processing ${activeSelection.length} selected ships: [${activeSelection.join(', ')}]`);
+        
+        // Validate that we're only processing selected ships
+        if (activeSelection.length === 0) {
+            console.error('No ships selected for simulation step!');
+            this.logMessage('simulationLog', 'ERROR: No ships selected for simulation step');
+            return;
+        }
+        
+        // Process ONLY the selected ships
+        activeSelection.forEach((shipIndex, i) => {
             const ship = this.ships[shipIndex];
             if (!ship) {
                 console.warn(`Simulation step: Ship at index ${shipIndex} not found`);
+                this.logMessage('simulationLog', `WARNING: Ship at index ${shipIndex} not found`);
                 return;
             }
+            
+            console.log(`Processing ship ${i + 1}/${activeSelection.length}: ${ship.name} (MMSI: ${ship.mmsi}, Index: ${shipIndex})`);
+            this.logMessage('simulationLog', `Processing: ${ship.name} (MMSI: ${ship.mmsi})`);
 
             // Validate ship state before processing
             if (typeof ship.lat !== 'number' || isNaN(ship.lat)) {
@@ -736,13 +793,20 @@ class SIRENWebApp {
 
             // Schedule transmission with proper delay between ships
             setTimeout(() => {
+                // Double-check that simulation is still active
+                if (!this.simulation.active) {
+                    console.log(`${shipSnapshot.name}: Simulation stopped, skipping transmission`);
+                    return;
+                }
+                
                 // Generate AIS message with captured state snapshot
                 const aisMessage = this.generateAISMessage(shipSnapshot, channel);
                 
                 // Log the actual values being transmitted with timestamp
                 const timestamp = new Date().toISOString().substr(11, 12); // HH:MM:SS.mmm
+                console.log(`${timestamp} TRANSMITTING: ${shipSnapshot.name} (MMSI: ${shipSnapshot.mmsi})`);
                 this.logMessage('transmissionLog', 
-                    `${timestamp} TX ${shipSnapshot.name}: Lat=${shipSnapshot.lat.toFixed(6)}, Lon=${shipSnapshot.lon.toFixed(6)}, ` +
+                    `${timestamp} TX ${shipSnapshot.name}: MMSI=${shipSnapshot.mmsi}, Lat=${shipSnapshot.lat.toFixed(6)}, Lon=${shipSnapshot.lon.toFixed(6)}, ` +
                     `COG=${shipSnapshot.course.toFixed(1)}°, SOG=${shipSnapshot.speed}kt, HDG=${shipSnapshot.heading}°, Status=${shipSnapshot.status}`
                 );
                 
@@ -756,6 +820,7 @@ class SIRENWebApp {
         
         const stepEndTime = new Date().toISOString().substr(11, 12);
         this.logMessage('simulationLog', `${stepEndTime} === Simulation Step Completed ===`);
+        console.log('=== SIMULATION STEP END ===');
         
         this.updateUI();
         
@@ -806,7 +871,7 @@ class SIRENWebApp {
         
         // Movement calculation with safety checks
         const timeStep = this.simulation.interval / 3600; // Convert seconds to hours
-        const distanceNM = ship.speed * timeStep;
+        let distanceNM = ship.speed * timeStep;
         
         // Prevent extreme movement near poles
         if (Math.abs(ship.lat) > 85) {
@@ -1300,6 +1365,12 @@ class SIRENWebApp {
     }
 
     updateShipSelection() {
+        // Don't update ship selection UI during simulation to prevent interference
+        if (this.simulation.active) {
+            console.log('Skipping ship selection update during simulation');
+            return;
+        }
+        
         const select = document.getElementById('selectedShips');
         select.innerHTML = this.ships.map((ship, index) => 
             `<option value="${index}">${ship.name} (${ship.mmsi})</option>`
@@ -1339,6 +1410,12 @@ class SIRENWebApp {
     }
 
     loadShipsFromStorage() {
+        // Don't load from storage during simulation to prevent interference
+        if (this.simulation.active) {
+            console.log('Skipping ship loading from storage during simulation');
+            return;
+        }
+        
         const saved = localStorage.getItem('siren-ships');
         if (saved) {
             try {
