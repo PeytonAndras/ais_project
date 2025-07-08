@@ -623,6 +623,9 @@ class SIRENWebApp {
         if (!this.simulation.active) return;
 
         const channel = document.getElementById('aisChannel').value;
+        const stepStartTime = new Date().toISOString().substr(11, 12);
+        
+        this.logMessage('simulationLog', `${stepStartTime} === Simulation Step Started ===`);
         
         // Process all ships - move them first, then transmit with proper timing
         this.selectedShips.forEach((shipIndex, i) => {
@@ -646,25 +649,42 @@ class SIRENWebApp {
                 );
             }
 
+            // Capture ship state snapshot at the time of scheduling to avoid race conditions
+            const shipSnapshot = {
+                name: ship.name,
+                mmsi: ship.mmsi,
+                lat: ship.lat,
+                lon: ship.lon,
+                course: ship.course,
+                speed: ship.speed,
+                heading: ship.heading,
+                status: ship.status,
+                turn: ship.turn,
+                accuracy: ship.accuracy
+            };
+
             // Schedule transmission with proper delay between ships
             setTimeout(() => {
-                // Generate AIS message with updated position
-                const aisMessage = this.generateAISMessage(ship, channel);
+                // Generate AIS message with captured state snapshot
+                const aisMessage = this.generateAISMessage(shipSnapshot, channel);
                 
                 // Log the actual values being transmitted with timestamp
                 const timestamp = new Date().toISOString().substr(11, 12); // HH:MM:SS.mmm
                 this.logMessage('transmissionLog', 
-                    `${timestamp} TX ${ship.name}: Lat=${ship.lat.toFixed(6)}, Lon=${ship.lon.toFixed(6)}, ` +
-                    `COG=${ship.course.toFixed(1)}°, SOG=${ship.speed}kt, HDG=${ship.heading}°, Status=${ship.status}`
+                    `${timestamp} TX ${shipSnapshot.name}: Lat=${shipSnapshot.lat.toFixed(6)}, Lon=${shipSnapshot.lon.toFixed(6)}, ` +
+                    `COG=${shipSnapshot.course.toFixed(1)}°, SOG=${shipSnapshot.speed}kt, HDG=${shipSnapshot.heading}°, Status=${shipSnapshot.status}`
                 );
                 
                 // Send to GNU Radio
-                this.sendAISMessage(aisMessage, ship.name);
+                this.sendAISMessage(aisMessage, shipSnapshot.name);
             }, i * 500); // Delay between ships to avoid message collisions
         });
 
         // Save updated ship positions to storage
         this.saveShipsToStorage();
+        
+        const stepEndTime = new Date().toISOString().substr(11, 12);
+        this.logMessage('simulationLog', `${stepEndTime} === Simulation Step Completed ===`);
         
         this.updateUI();
         
@@ -693,6 +713,9 @@ class SIRENWebApp {
         // Convert to lat/lon change
         const latChange = distanceNM * Math.cos(ship.course * Math.PI / 180) / 60;
         const lonChange = distanceNM * Math.sin(ship.course * Math.PI / 180) / (60 * Math.cos(ship.lat * Math.PI / 180));
+        
+        // Debug logging for movement calculation
+        console.log(`${ship.name}: timeStep=${timeStep.toFixed(4)}h, distanceNM=${distanceNM.toFixed(4)}, latChange=${latChange.toFixed(6)}, lonChange=${lonChange.toFixed(6)}`);
         
         ship.lat += latChange;
         ship.lon += lonChange;
@@ -788,11 +811,11 @@ class SIRENWebApp {
 
     generateAISMessage(ship, channel = 'A') {
         // Ensure all values are within valid ranges and capture current state
-        const lat = Math.max(-90, Math.min(90, ship.lat));
-        const lon = Math.max(-180, Math.min(180, ship.lon));
+        const lat = Math.max(-90, Math.min(90, ship.lat || 0));
+        const lon = Math.max(-180, Math.min(180, ship.lon || 0));
         const course = Math.max(0, Math.min(359.9, ship.course || 0));
         const speed = Math.max(0, Math.min(102.2, ship.speed || 0));
-        const heading = Math.max(0, Math.min(359, ship.heading || course));
+        const heading = Math.max(0, Math.min(359, ship.heading || ship.course || 0));
         
         // Log the exact values being encoded (for debugging)
         console.log(`Generating AIS for ${ship.name}: lat=${lat}, lon=${lon}, course=${course}, speed=${speed}, heading=${heading}`);
