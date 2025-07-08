@@ -583,11 +583,22 @@ class SIRENWebApp {
         this.simulation.messageCount = 0;
         this.simulation.startTime = new Date();
 
-        // Get selected ships or use all ships
+        // Get selected ships - require explicit selection
         const selectedOptions = Array.from(document.getElementById('selectedShips').selectedOptions);
-        this.selectedShips = selectedOptions.length > 0 
-            ? selectedOptions.map(option => parseInt(option.value))
-            : this.ships.map((_, index) => index);
+        if (selectedOptions.length === 0) {
+            this.showNotification('Please select at least one ship for simulation', 'warning');
+            return;
+        }
+        this.selectedShips = selectedOptions.map(option => parseInt(option.value));
+        
+        // Debug: Log which ships are selected
+        console.log(`Selected ship indices: [${this.selectedShips.join(', ')}]`);
+        this.selectedShips.forEach(shipIndex => {
+            const ship = this.ships[shipIndex];
+            if (ship) {
+                console.log(`  - ${ship.name} (MMSI: ${ship.mmsi})`);
+            }
+        });
 
         // Update UI
         document.getElementById('startSimulationBtn').disabled = true;
