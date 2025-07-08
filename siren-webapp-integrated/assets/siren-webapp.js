@@ -771,35 +771,62 @@ class SIRENWebApp {
             return; // No movement for invalid or stationary ships
         }
         
-        // Validate input values
+        // Store original position for recovery if needed
+        const originalLat = ship.lat;
+        const originalLon = ship.lon;
+        const originalCourse = ship.course;
+        
+        // Validate input values - be more conservative about resetting
         if (typeof ship.lat !== 'number' || isNaN(ship.lat) || ship.lat < -90 || ship.lat > 90) {
-            console.error(`${ship.name}: Invalid latitude ${ship.lat} before movement, resetting to 0`);
-            ship.lat = 0;
+            console.error(`${ship.name}: Invalid latitude ${ship.lat} before movement, cannot move safely`);
+            return; // Don't move if position is invalid
         }
         if (typeof ship.lon !== 'number' || isNaN(ship.lon) || ship.lon < -180 || ship.lon > 180) {
-            console.error(`${ship.name}: Invalid longitude ${ship.lon} before movement, resetting to 0`);
-            ship.lon = 0;
+            console.error(`${ship.name}: Invalid longitude ${ship.lon} before movement, cannot move safely`);
+            return; // Don't move if position is invalid
         }
         if (typeof ship.course !== 'number' || isNaN(ship.course)) {
-            console.error(`${ship.name}: Invalid course ${ship.course} before movement, resetting to 0`);
-            ship.course = 0;
+            console.error(`${ship.name}: Invalid course ${ship.course} before movement, cannot move safely`);
+            return; // Don't move if course is invalid
         }
         
         // Normalize course to 0-359.9 range
         ship.course = ((ship.course % 360) + 360) % 360;
         
-        // Simple movement calculation
+        // Movement calculation with safety checks
         const timeStep = this.simulation.interval / 3600; // Convert seconds to hours
         const distanceNM = ship.speed * timeStep;
         
-        // Convert to lat/lon change
+        // Prevent extreme movement near poles
+        if (Math.abs(ship.lat) > 85) {
+            console.warn(`${ship.name}: Near pole (lat=${ship.lat}), limiting movement`);
+            // Reduce movement near poles to prevent coordinate system issues
+            const limitedDistance = Math.min(distanceNM, 0.1); // Limit to 0.1 NM near poles
+            distanceNM = limitedDistance;
+        }
+        
+        // Calculate lat/lon changes with safety checks
         const latChange = distanceNM * Math.cos(ship.course * Math.PI / 180) / 60;
-        const lonChange = distanceNM * Math.sin(ship.course * Math.PI / 180) / (60 * Math.cos(ship.lat * Math.PI / 180));
+        
+        // Prevent division by zero near poles for longitude calculation
+        const cosLat = Math.cos(ship.lat * Math.PI / 180);
+        if (Math.abs(cosLat) < 0.01) {
+            console.warn(`${ship.name}: Too close to pole for longitude calculation, skipping movement`);
+            return;
+        }
+        
+        const lonChange = distanceNM * Math.sin(ship.course * Math.PI / 180) / (60 * cosLat);
         
         // Validate calculated changes
-        if (isNaN(latChange) || isNaN(lonChange)) {
-            console.error(`${ship.name}: NaN in movement calculation: latChange=${latChange}, lonChange=${lonChange}`);
-            return;
+        if (isNaN(latChange) || isNaN(lonChange) || !isFinite(latChange) || !isFinite(lonChange)) {
+            console.error(`${ship.name}: Invalid movement calculation: latChange=${latChange}, lonChange=${lonChange}`);
+            return; // Don't move if calculations are invalid
+        }
+        
+        // Check if movement is reasonable (not too large)
+        if (Math.abs(latChange) > 1.0 || Math.abs(lonChange) > 1.0) {
+            console.error(`${ship.name}: Movement too large: latChange=${latChange}, lonChange=${lonChange}, probably a calculation error`);
+            return; // Don't move if movement is unreasonably large
         }
         
         // Debug logging for movement calculation
@@ -812,25 +839,22 @@ class SIRENWebApp {
         const newLon = ship.lon + lonChange;
         
         // Validate new position before applying
-        if (isNaN(newLat) || isNaN(newLon)) {
-            console.error(`${ship.name}: NaN in new position: lat=${newLat}, lon=${newLon}, skipping movement`);
-            return;
+        if (isNaN(newLat) || isNaN(newLon) || !isFinite(newLat) || !isFinite(newLon)) {
+            console.error(`${ship.name}: Invalid new position: lat=${newLat}, lon=${newLon}, keeping original position`);
+            return; // Don't move if new position is invalid
         }
         
+        // Check if new position is within reasonable bounds
+        if (newLat < -90 || newLat > 90 || newLon < -180 || newLon > 180) {
+            console.error(`${ship.name}: New position out of bounds: lat=${newLat}, lon=${newLon}, keeping original position`);
+            return; // Don't move if new position is out of bounds
+        }
+        
+        // Apply the validated movement
         ship.lat = newLat;
         ship.lon = newLon;
 
-        // Boundary check and correction - proper latitude clamping
-        if (ship.lat > 90) {
-            console.warn(`${ship.name}: Latitude ${ship.lat} > 90, clamping to 90`);
-            ship.lat = 90;
-        }
-        if (ship.lat < -90) {
-            console.warn(`${ship.name}: Latitude ${ship.lat} < -90, clamping to -90`);
-            ship.lat = -90;
-        }
-        
-        // Longitude wrap-around (proper handling)
+        // Proper longitude wrap-around (keep within -180 to 180)
         while (ship.lon > 180) {
             ship.lon -= 360;
         }
@@ -839,10 +863,12 @@ class SIRENWebApp {
         }
         
         // Final validation after movement
-        if (isNaN(ship.lat) || isNaN(ship.lon)) {
-            console.error(`${ship.name}: NaN position after movement! Resetting to origin.`);
-            ship.lat = 0;
-            ship.lon = 0;
+        if (isNaN(ship.lat) || isNaN(ship.lon) || !isFinite(ship.lat) || !isFinite(ship.lon)) {
+            console.error(`${ship.name}: Position corrupted after movement! Restoring original position.`);
+            ship.lat = originalLat;
+            ship.lon = originalLon;
+            ship.course = originalCourse;
+            return;
         }
         
         // Update heading to match course
@@ -932,67 +958,32 @@ class SIRENWebApp {
     // =====================================
 
     generateAISMessage(ship, channel = 'A') {
-        // Comprehensive validation and sanitization of ship data
+        // Light validation only - main validation should be done before this point
         
-        // MMSI validation - must be a valid 9-digit number
-        let mmsi = ship.mmsi || 123456789;
-        if (typeof mmsi !== 'number' || mmsi < 100000000 || mmsi > 999999999 || !Number.isInteger(mmsi)) {
-            console.error(`${ship.name}: Invalid MMSI ${mmsi}, using default 123456789`);
-            mmsi = 123456789;
+        // Use ship data as-is since it should already be validated
+        const mmsi = ship.mmsi;
+        const lat = ship.lat;
+        const lon = ship.lon;
+        const speed = ship.speed;
+        const course = ship.course;
+        const heading = ship.heading;
+        const status = ship.status;
+        
+        // Final safety checks - only log warnings, don't change values
+        if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+            console.warn(`${ship.name}: Position out of range in AIS generation: ${lat}, ${lon}`);
+        }
+        if (speed < 0 || speed > 102.2) {
+            console.warn(`${ship.name}: Speed out of range in AIS generation: ${speed}`);
+        }
+        if (course < 0 || course >= 360) {
+            console.warn(`${ship.name}: Course out of range in AIS generation: ${course}`);
         }
         
-        // Position validation - must be valid lat/lon coordinates
-        let lat = ship.lat || 0;
-        let lon = ship.lon || 0;
-        if (typeof lat !== 'number' || isNaN(lat) || lat < -90 || lat > 90) {
-            console.error(`${ship.name}: Invalid latitude ${lat}, using 0`);
-            lat = 0;
-        }
-        if (typeof lon !== 'number' || isNaN(lon) || lon < -180 || lon > 180) {
-            console.error(`${ship.name}: Invalid longitude ${lon}, using 0`);
-            lon = 0;
-        }
-        
-        // Speed validation - must be reasonable value in knots
-        let speed = ship.speed || 0;
-        if (typeof speed !== 'number' || isNaN(speed) || speed < 0 || speed > 102.2) {
-            console.error(`${ship.name}: Invalid speed ${speed}, clamping to valid range`);
-            speed = Math.max(0, Math.min(102.2, speed || 0));
-        }
-        
-        // Course validation - must be 0-359.9 degrees
-        let course = ship.course || 0;
-        if (typeof course !== 'number' || isNaN(course) || course < 0 || course >= 360) {
-            console.error(`${ship.name}: Invalid course ${course}, normalizing`);
-            course = ((course % 360) + 360) % 360; // Normalize to 0-359.9
-        }
-        
-        // Heading validation - must be 0-359 degrees
-        let heading = ship.heading || course;
-        if (typeof heading !== 'number' || isNaN(heading) || heading < 0 || heading >= 360) {
-            console.error(`${ship.name}: Invalid heading ${heading}, using course ${course}`);
-            heading = course;
-        }
-        
-        // Status validation - must be valid navigation status
-        let status = ship.status || 0;
-        if (typeof status !== 'number' || isNaN(status) || status < 0 || status > 15) {
-            console.error(`${ship.name}: Invalid status ${status}, using 0`);
-            status = 0;
-        }
-        
-        // Log the sanitized values being encoded
+        // Log the values being encoded
         console.log(`Generating AIS for ${ship.name}: MMSI=${mmsi}, lat=${lat.toFixed(6)}, lon=${lon.toFixed(6)}, course=${course.toFixed(1)}, speed=${speed.toFixed(1)}, heading=${heading.toFixed(1)}, status=${status}`);
         
-        // Additional sanity checks
-        if (lat === 0 && lon === 0) {
-            console.warn(`${ship.name}: Ship at origin (0,0) - check position initialization`);
-        }
-        if (course === 0 && speed > 0) {
-            console.warn(`${ship.name}: Ship has speed ${speed} but course is 0 - this may indicate a movement calculation issue`);
-        }
-        
-        // Create AIS Type 1 Position Report with sanitized values
+        // Create AIS Type 1 Position Report
         const fields = {
             msg_type: 1,
             repeat: 0,
@@ -2334,7 +2325,7 @@ class SIRENWebApp {
                 isModified = true;
             }
             
-            // Validate and fix position
+            // Validate and fix position - be more conservative with resets
             if (typeof ship.lat !== 'number' || isNaN(ship.lat) || ship.lat < -90 || ship.lat > 90) {
                 console.warn(`Ship ${index} (${ship.name}): Invalid latitude ${ship.lat}, resetting to 39.5`);
                 ship.lat = 39.5;
@@ -2346,47 +2337,82 @@ class SIRENWebApp {
                 isModified = true;
             }
             
-            // Validate and fix speed
-            if (typeof ship.speed !== 'number' || isNaN(ship.speed) || ship.speed < 0 || ship.speed > 50) {
+            // Validate and fix speed - cap at realistic values
+            if (typeof ship.speed !== 'number' || isNaN(ship.speed) || ship.speed < 0) {
                 console.warn(`Ship ${index} (${ship.name}): Invalid speed ${ship.speed}, setting to 10`);
                 ship.speed = 10;
                 isModified = true;
+            } else if (ship.speed > 40) {
+                console.warn(`Ship ${index} (${ship.name}): Unrealistic speed ${ship.speed}, capping at 25`);
+                ship.speed = 25;
+                isModified = true;
             }
             
-            // Validate and fix course
+            // Validate and fix course - ensure logical consistency
             if (typeof ship.course !== 'number' || isNaN(ship.course)) {
-                console.warn(`Ship ${index} (${ship.name}): Invalid course ${ship.course}, setting to 0`);
-                ship.course = 0;
+                if (ship.speed > 0) {
+                    // Moving ship needs a proper course
+                    ship.course = Math.floor(Math.random() * 360);
+                    console.warn(`Ship ${index} (${ship.name}): Invalid course for moving ship, setting random course ${ship.course}`);
+                } else {
+                    ship.course = 0;
+                    console.warn(`Ship ${index} (${ship.name}): Invalid course for stationary ship, setting to 0`);
+                }
                 isModified = true;
             } else {
                 // Normalize course to 0-359.9
                 const normalizedCourse = ((ship.course % 360) + 360) % 360;
-                if (normalizedCourse !== ship.course) {
+                if (Math.abs(normalizedCourse - ship.course) > 0.1) {
                     console.warn(`Ship ${index} (${ship.name}): Course ${ship.course} normalized to ${normalizedCourse}`);
                     ship.course = normalizedCourse;
                     isModified = true;
                 }
             }
             
-            // Validate and fix heading
+            // Fix course/speed inconsistency - if ship is moving but course is 0, randomize course
+            if (ship.speed > 0 && ship.course === 0) {
+                ship.course = Math.floor(Math.random() * 360);
+                console.warn(`Ship ${index} (${ship.name}): Moving ship had course 0°, randomized to ${ship.course}°`);
+                isModified = true;
+            }
+            
+            // Validate and fix heading - keep synchronized with course
             if (typeof ship.heading !== 'number' || isNaN(ship.heading)) {
-                console.warn(`Ship ${index} (${ship.name}): Invalid heading ${ship.heading}, setting to course ${ship.course}`);
                 ship.heading = ship.course;
+                console.warn(`Ship ${index} (${ship.name}): Invalid heading, setting to course ${ship.course}`);
                 isModified = true;
             } else {
                 // Normalize heading to 0-359
                 const normalizedHeading = ((ship.heading % 360) + 360) % 360;
-                if (normalizedHeading !== ship.heading) {
+                if (Math.abs(normalizedHeading - ship.heading) > 0.1) {
                     console.warn(`Ship ${index} (${ship.name}): Heading ${ship.heading} normalized to ${normalizedHeading}`);
                     ship.heading = normalizedHeading;
                     isModified = true;
                 }
             }
             
-            // Validate and fix status
+            // Validate and fix status - ensure consistency with speed
             if (typeof ship.status !== 'number' || isNaN(ship.status) || ship.status < 0 || ship.status > 15) {
-                console.warn(`Ship ${index} (${ship.name}): Invalid status ${ship.status}, setting to 0`);
-                ship.status = 0;
+                ship.status = ship.speed > 0 ? 0 : 1; // 0 = under way, 1 = at anchor
+                console.warn(`Ship ${index} (${ship.name}): Invalid status, setting to ${ship.status}`);
+                isModified = true;
+            } else if (ship.status === 1 && ship.speed > 0) {
+                // Ship is "at anchor" but moving - fix the inconsistency
+                ship.status = 0; // Under way using engine
+                console.warn(`Ship ${index} (${ship.name}): Status was 'at anchor' but ship is moving, changed to 'under way'`);
+                isModified = true;
+            }
+            
+            // Validate and fix other fields
+            if (typeof ship.turn !== 'number' || isNaN(ship.turn)) {
+                ship.turn = 0;
+                isModified = true;
+            } else {
+                ship.turn = Math.max(-127, Math.min(127, ship.turn));
+            }
+            
+            if (typeof ship.accuracy !== 'number' || isNaN(ship.accuracy)) {
+                ship.accuracy = 1;
                 isModified = true;
             }
             
