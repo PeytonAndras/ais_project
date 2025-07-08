@@ -575,6 +575,9 @@ class SIRENWebApp {
             return;
         }
 
+        // Validate and clean ship data before starting simulation
+        this.validateAndCleanShipData();
+
         this.simulation.active = true;
         this.simulation.interval = parseInt(document.getElementById('simulationInterval').value);
         this.simulation.messageCount = 0;
@@ -630,7 +633,24 @@ class SIRENWebApp {
         // Process all ships - move them first, then transmit with proper timing
         this.selectedShips.forEach((shipIndex, i) => {
             const ship = this.ships[shipIndex];
-            if (!ship) return;
+            if (!ship) {
+                console.warn(`Simulation step: Ship at index ${shipIndex} not found`);
+                return;
+            }
+
+            // Validate ship state before processing
+            if (typeof ship.lat !== 'number' || isNaN(ship.lat)) {
+                console.error(`${ship.name}: Invalid latitude ${ship.lat}, skipping simulation step`);
+                return;
+            }
+            if (typeof ship.lon !== 'number' || isNaN(ship.lon)) {
+                console.error(`${ship.name}: Invalid longitude ${ship.lon}, skipping simulation step`);
+                return;
+            }
+            if (typeof ship.speed !== 'number' || isNaN(ship.speed) || ship.speed < 0) {
+                console.error(`${ship.name}: Invalid speed ${ship.speed}, skipping simulation step`);
+                return;
+            }
 
             // Store previous position for logging
             const prevLat = ship.lat;
@@ -639,6 +659,15 @@ class SIRENWebApp {
 
             // Move the ship FIRST
             this.moveShip(ship);
+
+            // Verify ship state after movement
+            if (typeof ship.lat !== 'number' || isNaN(ship.lat) || typeof ship.lon !== 'number' || isNaN(ship.lon)) {
+                console.error(`${ship.name}: Ship position corrupted after movement! Restoring previous position.`);
+                ship.lat = prevLat;
+                ship.lon = prevLon;
+                ship.course = prevCourse;
+                return;
+            }
 
             // Log movement details for debugging
             const moved = (Math.abs(ship.lat - prevLat) > 0.0001 || Math.abs(ship.lon - prevLon) > 0.0001);
@@ -662,6 +691,17 @@ class SIRENWebApp {
                 turn: ship.turn,
                 accuracy: ship.accuracy
             };
+
+            // Validate the snapshot before transmission
+            if (typeof shipSnapshot.lat !== 'number' || isNaN(shipSnapshot.lat) || 
+                typeof shipSnapshot.lon !== 'number' || isNaN(shipSnapshot.lon) ||
+                typeof shipSnapshot.course !== 'number' || isNaN(shipSnapshot.course) ||
+                typeof shipSnapshot.speed !== 'number' || isNaN(shipSnapshot.speed) ||
+                typeof shipSnapshot.heading !== 'number' || isNaN(shipSnapshot.heading)) {
+                console.error(`${ship.name}: Invalid snapshot data detected, skipping transmission`);
+                console.error('Snapshot:', shipSnapshot);
+                return;
+            }
 
             // Schedule transmission with proper delay between ships
             setTimeout(() => {
@@ -706,7 +746,29 @@ class SIRENWebApp {
     }
 
     moveShipStraight(ship) {
-        // Simple movement calculation (original behavior)
+        // Validate ship state before movement
+        if (!ship || typeof ship.speed !== 'number' || ship.speed <= 0) {
+            return; // No movement for invalid or stationary ships
+        }
+        
+        // Validate input values
+        if (typeof ship.lat !== 'number' || isNaN(ship.lat) || ship.lat < -90 || ship.lat > 90) {
+            console.error(`${ship.name}: Invalid latitude ${ship.lat} before movement, resetting to 0`);
+            ship.lat = 0;
+        }
+        if (typeof ship.lon !== 'number' || isNaN(ship.lon) || ship.lon < -180 || ship.lon > 180) {
+            console.error(`${ship.name}: Invalid longitude ${ship.lon} before movement, resetting to 0`);
+            ship.lon = 0;
+        }
+        if (typeof ship.course !== 'number' || isNaN(ship.course)) {
+            console.error(`${ship.name}: Invalid course ${ship.course} before movement, resetting to 0`);
+            ship.course = 0;
+        }
+        
+        // Normalize course to 0-359.9 range
+        ship.course = ((ship.course % 360) + 360) % 360;
+        
+        // Simple movement calculation
         const timeStep = this.simulation.interval / 3600; // Convert seconds to hours
         const distanceNM = ship.speed * timeStep;
         
@@ -714,19 +776,48 @@ class SIRENWebApp {
         const latChange = distanceNM * Math.cos(ship.course * Math.PI / 180) / 60;
         const lonChange = distanceNM * Math.sin(ship.course * Math.PI / 180) / (60 * Math.cos(ship.lat * Math.PI / 180));
         
-        // Debug logging for movement calculation
-        if (distanceNM > 0) {
-            console.log(`${ship.name}: Moving ${distanceNM.toFixed(4)}NM over ${timeStep.toFixed(4)}h at ${ship.course}°, latΔ=${latChange.toFixed(6)}, lonΔ=${lonChange.toFixed(6)}`);
+        // Validate calculated changes
+        if (isNaN(latChange) || isNaN(lonChange)) {
+            console.error(`${ship.name}: NaN in movement calculation: latChange=${latChange}, lonChange=${lonChange}`);
+            return;
         }
         
+        // Debug logging for movement calculation
+        if (distanceNM > 0) {
+            console.log(`${ship.name}: Moving ${distanceNM.toFixed(4)}NM over ${timeStep.toFixed(4)}h at ${ship.course.toFixed(1)}°, latΔ=${latChange.toFixed(6)}, lonΔ=${lonChange.toFixed(6)}`);
+        }
+        
+        // Apply movement
         ship.lat += latChange;
         ship.lon += lonChange;
 
-        // Simple boundary check (keep in reasonable area)
-        if (ship.lat > 90) ship.lat = 90;
-        if (ship.lat < -90) ship.lat = -90;
-        if (ship.lon > 180) ship.lon = -180;
-        if (ship.lon < -180) ship.lon = 180;
+        // Boundary check and correction
+        if (ship.lat > 90) {
+            console.warn(`${ship.name}: Latitude ${ship.lat} > 90, clamping to 90`);
+            ship.lat = 90;
+        }
+        if (ship.lat < -90) {
+            console.warn(`${ship.name}: Latitude ${ship.lat} < -90, clamping to -90`);
+            ship.lat = -90;
+        }
+        if (ship.lon > 180) {
+            console.warn(`${ship.name}: Longitude ${ship.lon} > 180, wrapping to ${ship.lon - 360}`);
+            ship.lon = ship.lon - 360;
+        }
+        if (ship.lon < -180) {
+            console.warn(`${ship.name}: Longitude ${ship.lon} < -180, wrapping to ${ship.lon + 360}`);
+            ship.lon = ship.lon + 360;
+        }
+        
+        // Final validation after movement
+        if (isNaN(ship.lat) || isNaN(ship.lon)) {
+            console.error(`${ship.name}: NaN position after movement! Resetting to origin.`);
+            ship.lat = 0;
+            ship.lon = 0;
+        }
+        
+        // Update heading to match course
+        ship.heading = ship.course;
     }
 
     moveShipWithWaypoints(ship) {
@@ -812,27 +903,67 @@ class SIRENWebApp {
     // =====================================
 
     generateAISMessage(ship, channel = 'A') {
-        // Ensure all values are within valid ranges and capture current state
-        const lat = Math.max(-90, Math.min(90, ship.lat || 0));
-        const lon = Math.max(-180, Math.min(180, ship.lon || 0));
-        const course = Math.max(0, Math.min(359.9, ship.course || 0));
-        const speed = Math.max(0, Math.min(102.2, ship.speed || 0));
-        const heading = Math.max(0, Math.min(359, ship.heading || ship.course || 0));
-        const status = Math.max(0, Math.min(15, ship.status || 0));
-        const mmsi = Math.max(100000000, Math.min(999999999, ship.mmsi || 123456789));
+        // Comprehensive validation and sanitization of ship data
         
-        // Log the exact values being encoded (for debugging)
-        console.log(`Generating AIS for ${ship.name}: MMSI=${mmsi}, lat=${lat}, lon=${lon}, course=${course}, speed=${speed}, heading=${heading}, status=${status}`);
+        // MMSI validation - must be a valid 9-digit number
+        let mmsi = ship.mmsi || 123456789;
+        if (typeof mmsi !== 'number' || mmsi < 100000000 || mmsi > 999999999 || !Number.isInteger(mmsi)) {
+            console.error(`${ship.name}: Invalid MMSI ${mmsi}, using default 123456789`);
+            mmsi = 123456789;
+        }
         
-        // Validate that we have reasonable values
+        // Position validation - must be valid lat/lon coordinates
+        let lat = ship.lat || 0;
+        let lon = ship.lon || 0;
+        if (typeof lat !== 'number' || isNaN(lat) || lat < -90 || lat > 90) {
+            console.error(`${ship.name}: Invalid latitude ${lat}, using 0`);
+            lat = 0;
+        }
+        if (typeof lon !== 'number' || isNaN(lon) || lon < -180 || lon > 180) {
+            console.error(`${ship.name}: Invalid longitude ${lon}, using 0`);
+            lon = 0;
+        }
+        
+        // Speed validation - must be reasonable value in knots
+        let speed = ship.speed || 0;
+        if (typeof speed !== 'number' || isNaN(speed) || speed < 0 || speed > 102.2) {
+            console.error(`${ship.name}: Invalid speed ${speed}, clamping to valid range`);
+            speed = Math.max(0, Math.min(102.2, speed || 0));
+        }
+        
+        // Course validation - must be 0-359.9 degrees
+        let course = ship.course || 0;
+        if (typeof course !== 'number' || isNaN(course) || course < 0 || course >= 360) {
+            console.error(`${ship.name}: Invalid course ${course}, normalizing`);
+            course = ((course % 360) + 360) % 360; // Normalize to 0-359.9
+        }
+        
+        // Heading validation - must be 0-359 degrees
+        let heading = ship.heading || course;
+        if (typeof heading !== 'number' || isNaN(heading) || heading < 0 || heading >= 360) {
+            console.error(`${ship.name}: Invalid heading ${heading}, using course ${course}`);
+            heading = course;
+        }
+        
+        // Status validation - must be valid navigation status
+        let status = ship.status || 0;
+        if (typeof status !== 'number' || isNaN(status) || status < 0 || status > 15) {
+            console.error(`${ship.name}: Invalid status ${status}, using 0`);
+            status = 0;
+        }
+        
+        // Log the sanitized values being encoded
+        console.log(`Generating AIS for ${ship.name}: MMSI=${mmsi}, lat=${lat.toFixed(6)}, lon=${lon.toFixed(6)}, course=${course.toFixed(1)}, speed=${speed.toFixed(1)}, heading=${heading.toFixed(1)}, status=${status}`);
+        
+        // Additional sanity checks
         if (lat === 0 && lon === 0) {
             console.warn(`${ship.name}: Ship at origin (0,0) - check position initialization`);
         }
         if (course === 0 && speed > 0) {
-            console.warn(`${ship.name}: Ship has speed ${speed} but course is 0 - check movement logic`);
+            console.warn(`${ship.name}: Ship has speed ${speed} but course is 0 - this may indicate a movement calculation issue`);
         }
         
-        // Create AIS Type 1 Position Report
+        // Create AIS Type 1 Position Report with sanitized values
         const fields = {
             msg_type: 1,
             repeat: 0,
@@ -848,7 +979,7 @@ class SIRENWebApp {
             timestamp: new Date().getSeconds() % 60
         };
 
-        // Build AIS payload (simplified version)
+        // Build AIS payload
         const payload = this.buildAISPayload(fields);
         const sentence = `AIVDM,1,1,,${channel},${payload},0`;
         const checksum = this.computeChecksum(sentence);
@@ -960,8 +1091,12 @@ class SIRENWebApp {
     }
 
     sixBitToChar(val) {
-        if (val < 32) return String.fromCharCode(val + 48);
-        else return String.fromCharCode(val + 56);
+        // AIS 6-bit ASCII encoding - proper implementation
+        if (val < 40) {
+            return String.fromCharCode(val + 48);
+        } else {
+            return String.fromCharCode(val + 56);
+        }
     }
 
     computeChecksum(sentence) {
@@ -2151,6 +2286,104 @@ class SIRENWebApp {
         } else {
             this.showNotification('No waypoints to center on', 'warning');
         }
+    }
+
+    // =====================================
+    // SHIP DATA VALIDATION
+    // =====================================
+
+    validateAndCleanShipData() {
+        console.log('Validating and cleaning ship data...');
+        
+        this.ships.forEach((ship, index) => {
+            let isModified = false;
+            
+            // Validate and fix MMSI
+            if (typeof ship.mmsi !== 'number' || ship.mmsi < 100000000 || ship.mmsi > 999999999) {
+                console.warn(`Ship ${index} (${ship.name}): Invalid MMSI ${ship.mmsi}, generating new one`);
+                ship.mmsi = Math.floor(Math.random() * 900000000) + 100000000;
+                isModified = true;
+            }
+            
+            // Validate and fix position
+            if (typeof ship.lat !== 'number' || isNaN(ship.lat) || ship.lat < -90 || ship.lat > 90) {
+                console.warn(`Ship ${index} (${ship.name}): Invalid latitude ${ship.lat}, resetting to 39.5`);
+                ship.lat = 39.5;
+                isModified = true;
+            }
+            if (typeof ship.lon !== 'number' || isNaN(ship.lon) || ship.lon < -180 || ship.lon > 180) {
+                console.warn(`Ship ${index} (${ship.name}): Invalid longitude ${ship.lon}, resetting to -9.2`);
+                ship.lon = -9.2;
+                isModified = true;
+            }
+            
+            // Validate and fix speed
+            if (typeof ship.speed !== 'number' || isNaN(ship.speed) || ship.speed < 0 || ship.speed > 50) {
+                console.warn(`Ship ${index} (${ship.name}): Invalid speed ${ship.speed}, setting to 10`);
+                ship.speed = 10;
+                isModified = true;
+            }
+            
+            // Validate and fix course
+            if (typeof ship.course !== 'number' || isNaN(ship.course)) {
+                console.warn(`Ship ${index} (${ship.name}): Invalid course ${ship.course}, setting to 0`);
+                ship.course = 0;
+                isModified = true;
+            } else {
+                // Normalize course to 0-359.9
+                const normalizedCourse = ((ship.course % 360) + 360) % 360;
+                if (normalizedCourse !== ship.course) {
+                    console.warn(`Ship ${index} (${ship.name}): Course ${ship.course} normalized to ${normalizedCourse}`);
+                    ship.course = normalizedCourse;
+                    isModified = true;
+                }
+            }
+            
+            // Validate and fix heading
+            if (typeof ship.heading !== 'number' || isNaN(ship.heading)) {
+                console.warn(`Ship ${index} (${ship.name}): Invalid heading ${ship.heading}, setting to course ${ship.course}`);
+                ship.heading = ship.course;
+                isModified = true;
+            } else {
+                // Normalize heading to 0-359
+                const normalizedHeading = ((ship.heading % 360) + 360) % 360;
+                if (normalizedHeading !== ship.heading) {
+                    console.warn(`Ship ${index} (${ship.name}): Heading ${ship.heading} normalized to ${normalizedHeading}`);
+                    ship.heading = normalizedHeading;
+                    isModified = true;
+                }
+            }
+            
+            // Validate and fix status
+            if (typeof ship.status !== 'number' || isNaN(ship.status) || ship.status < 0 || ship.status > 15) {
+                console.warn(`Ship ${index} (${ship.name}): Invalid status ${ship.status}, setting to 0`);
+                ship.status = 0;
+                isModified = true;
+            }
+            
+            // Ensure other required fields exist
+            if (typeof ship.turn !== 'number') {
+                ship.turn = 0;
+                isModified = true;
+            }
+            if (typeof ship.accuracy !== 'number') {
+                ship.accuracy = 1;
+                isModified = true;
+            }
+            
+            if (isModified) {
+                console.log(`Ship ${index} (${ship.name}): Data cleaned and validated`);
+            }
+        });
+        
+        if (this.ships.some(ship => isNaN(ship.lat) || isNaN(ship.lon))) {
+            console.error('Ship data validation failed - some ships still have invalid data!');
+        } else {
+            console.log('All ship data validated successfully');
+        }
+        
+        // Save cleaned data
+        this.saveShipsToStorage();
     }
 
     // =====================================
