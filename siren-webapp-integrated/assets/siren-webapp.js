@@ -656,9 +656,15 @@ class SIRENWebApp {
             const prevLat = ship.lat;
             const prevLon = ship.lon;
             const prevCourse = ship.course;
+            
+            // Log ship state before movement for debugging
+            console.log(`${ship.name} before movement: Lat=${ship.lat.toFixed(6)}, Lon=${ship.lon.toFixed(6)}, Course=${ship.course.toFixed(1)}°, Speed=${ship.speed}kt`);
 
             // Move the ship FIRST
             this.moveShip(ship);
+            
+            // Log ship state after movement for debugging
+            console.log(`${ship.name} after movement: Lat=${ship.lat.toFixed(6)}, Lon=${ship.lon.toFixed(6)}, Course=${ship.course.toFixed(1)}°, Speed=${ship.speed}kt`);
 
             // Verify ship state after movement
             if (typeof ship.lat !== 'number' || isNaN(ship.lat) || typeof ship.lon !== 'number' || isNaN(ship.lon)) {
@@ -692,7 +698,7 @@ class SIRENWebApp {
                 accuracy: ship.accuracy
             };
 
-            // Validate the snapshot before transmission
+            // Comprehensive validation of the snapshot before transmission
             if (typeof shipSnapshot.lat !== 'number' || isNaN(shipSnapshot.lat) || 
                 typeof shipSnapshot.lon !== 'number' || isNaN(shipSnapshot.lon) ||
                 typeof shipSnapshot.course !== 'number' || isNaN(shipSnapshot.course) ||
@@ -700,6 +706,20 @@ class SIRENWebApp {
                 typeof shipSnapshot.heading !== 'number' || isNaN(shipSnapshot.heading)) {
                 console.error(`${ship.name}: Invalid snapshot data detected, skipping transmission`);
                 console.error('Snapshot:', shipSnapshot);
+                return;
+            }
+            
+            // Additional range validation
+            if (shipSnapshot.lat < -90 || shipSnapshot.lat > 90) {
+                console.error(`${ship.name}: Latitude ${shipSnapshot.lat} out of range, skipping transmission`);
+                return;
+            }
+            if (shipSnapshot.lon < -180 || shipSnapshot.lon > 180) {
+                console.error(`${ship.name}: Longitude ${shipSnapshot.lon} out of range, skipping transmission`);
+                return;
+            }
+            if (shipSnapshot.speed < 0 || shipSnapshot.speed > 102) {
+                console.error(`${ship.name}: Speed ${shipSnapshot.speed} out of range, skipping transmission`);
                 return;
             }
 
@@ -788,10 +808,19 @@ class SIRENWebApp {
         }
         
         // Apply movement
-        ship.lat += latChange;
-        ship.lon += lonChange;
+        const newLat = ship.lat + latChange;
+        const newLon = ship.lon + lonChange;
+        
+        // Validate new position before applying
+        if (isNaN(newLat) || isNaN(newLon)) {
+            console.error(`${ship.name}: NaN in new position: lat=${newLat}, lon=${newLon}, skipping movement`);
+            return;
+        }
+        
+        ship.lat = newLat;
+        ship.lon = newLon;
 
-        // Boundary check and correction
+        // Boundary check and correction - proper latitude clamping
         if (ship.lat > 90) {
             console.warn(`${ship.name}: Latitude ${ship.lat} > 90, clamping to 90`);
             ship.lat = 90;
@@ -800,13 +829,13 @@ class SIRENWebApp {
             console.warn(`${ship.name}: Latitude ${ship.lat} < -90, clamping to -90`);
             ship.lat = -90;
         }
-        if (ship.lon > 180) {
-            console.warn(`${ship.name}: Longitude ${ship.lon} > 180, wrapping to ${ship.lon - 360}`);
-            ship.lon = ship.lon - 360;
+        
+        // Longitude wrap-around (proper handling)
+        while (ship.lon > 180) {
+            ship.lon -= 360;
         }
-        if (ship.lon < -180) {
-            console.warn(`${ship.name}: Longitude ${ship.lon} < -180, wrapping to ${ship.lon + 360}`);
-            ship.lon = ship.lon + 360;
+        while (ship.lon < -180) {
+            ship.lon += 360;
         }
         
         // Final validation after movement
