@@ -2,70 +2,148 @@
  * SIREN Integrated Web Application
  * Spoofed Identification & Real-time Emulation Node
  * 
- * Combines the proven ais-simulator transmission with comprehensive
- * ship simulation, fleet management, and scenario capabilities.
+ * This is a comprehensive maritime vessel simulation system that generates and transmits
+ * spoofed AIS (Automatic Identification System) messages for testing and demonstration
+ * purposes. The system allows users to create virtual ships, define waypoint-based
+ * navigation, and broadcast realistic AIS data via GNU Radio.
+ * 
+ * MAIN FEATURES:
+ * - Fleet Management: Create, edit, and organize virtual vessels
+ * - Real-time Simulation: Move ships with realistic physics and navigation
+ * - Waypoint Navigation: Define complex routes for autonomous ship movement
+ * - AIS Message Generation: Create standards-compliant AIS Type 1 position reports
+ * - GNU Radio Integration: Transmit AIS signals via software-defined radio
+ * - Interactive Mapping: Visualize ship positions, tracks, and routes
+ * - Offline Capability: Works without internet for secure/isolated environments
+ * 
+ * SECURITY NOTE: This tool is intended for authorized testing, research, and
+ * demonstration purposes only. Unauthorized transmission of false AIS signals
+ * is illegal and dangerous to maritime safety.
  * 
  * @author Peyton Andras @ Louisiana State University 2025
+ * @version 1.0
+ * @requires Bootstrap 5, Leaflet.js, Noty.js, GNU Radio backend
  */
 
 class SIRENWebApp {
+    /**
+     * Constructor initializes the SIREN Web Application with all necessary
+     * state variables and objects for ship simulation and AIS transmission.
+     * 
+     * The application manages several key data structures:
+     * - ships: Array containing all vessel objects with navigation data
+     * - simulation: Object controlling the real-time simulation loop
+     * - websocket: Connection to GNU Radio backend for AIS transmission
+     * - map: Leaflet map instance for visualization
+     */
     constructor() {
+        // Core fleet data - array of ship objects with navigation properties
         this.ships = [];
+        
+        // Currently selected ships for simulation (indices into ships array)
         this.selectedShips = [];
+        
+        // Simulation control object manages the real-time update loop
         this.simulation = {
-            active: false,
-            interval: 10,
-            intervalId: null,
-            messageCount: 0,
-            startTime: null,
-            lockedSelection: [],
-            selectedShipDetails: []
+            active: false,           // Whether simulation is currently running
+            interval: 10,            // Update interval in seconds
+            intervalId: null,        // JavaScript interval timer ID
+            messageCount: 0,         // Total AIS messages transmitted
+            startTime: null,         // Simulation start timestamp
+            lockedSelection: [],     // Ships locked for simulation (prevents UI changes)
+            selectedShipDetails: []  // Cached ship data for validation
         };
+        
+        // WebSocket connection to GNU Radio backend for AIS transmission
         this.websocket = null;
         this.isConnected = false;
-        this.currentShipIndex = -1;
         
-        // Map-related properties
-        this.map = null;
-        this.mapState = null;
-        this.mapLayers = null;
-        this.shipIcon = null;
-        this.selectedShipIcon = null;
+        // UI state tracking
+        this.currentShipIndex = -1;  // Currently edited ship (-1 = none)
         
+        // Interactive map system using Leaflet.js
+        this.map = null;              // Leaflet map instance
+        this.mapState = null;         // Map-specific state and settings
+        this.mapLayers = null;        // Available tile layers (online/offline)
+        this.shipIcon = null;         // Default ship marker icon
+        this.selectedShipIcon = null; // Highlighted ship marker icon
+        
+        // Initialize the application
         this.init();
     }
 
+    /**
+     * Initialize the SIREN application by loading saved data, setting up event handlers,
+     * updating the UI, and establishing connection to the GNU Radio backend.
+     * 
+     * This is the main entry point that coordinates all system components.
+     */
     init() {
+        // Load previously saved ship fleet from browser localStorage
         this.loadShipsFromStorage();
+        
+        // Set up all DOM event listeners for user interactions
         this.setupEventListeners();
+        
+        // Refresh the user interface with current data
         this.updateUI();
+        
+        // Attempt to connect to the GNU Radio backend for AIS transmission
         this.connectToGNURadio();
         
         console.log(`SIREN Web Application initialized with ${this.ships.length} ships`);
         
-        // If no ships loaded from storage, you might want to load sample data
+        // Provide user guidance if no ships are loaded
         if (this.ships.length === 0) {
             console.log('No ships found in storage. You can load sample data using the "Load Sample" button in Fleet Management.');
         }
     }
 
+    /**
+     * Set up all DOM event listeners for user interactions.
+     * This method binds click handlers, form submissions, keyboard events,
+     * and Bootstrap tab switching events to their respective handler methods.
+     * 
+     * Event categories:
+     * - Fleet Management: Add, edit, remove ships; load/save fleet data
+     * - Simulation Control: Start/stop simulation with selected ships
+     * - Transmission: Connect to GNU Radio and send test messages
+     * - Map Interface: Tab switching, waypoint picking, map controls
+     * - Keyboard: ESC to cancel waypoint picking mode
+     */
     setupEventListeners() {
-        // Fleet Management
+        // ===== FLEET MANAGEMENT EVENTS =====
+        // Show modal dialog for adding new ships with random MMSI generation
         document.getElementById('addShipBtn').addEventListener('click', () => this.showAddShipModal());
+        
+        // Process new ship form submission with validation
         document.getElementById('saveShipBtn').addEventListener('click', () => this.addShip());
+        
+        // File input for loading saved fleet configurations (JSON format)
         document.getElementById('loadFleetBtn').addEventListener('click', () => this.loadFleet());
+        
+        // Export current fleet to downloadable JSON file
         document.getElementById('saveFleetBtn').addEventListener('click', () => this.saveFleet());
+        
+        // Load predefined sample ships for testing and demonstration
         document.getElementById('loadSampleBtn').addEventListener('click', () => this.loadSampleData());
 
-        // Simulation Control
+        // ===== SIMULATION CONTROL EVENTS =====
+        // Begin real-time ship movement and AIS transmission
         document.getElementById('startSimulationBtn').addEventListener('click', () => this.startSimulation());
+        
+        // Stop simulation and unlock ship selection UI
         document.getElementById('stopSimulationBtn').addEventListener('click', () => this.stopSimulation());
 
-        // Transmission
+        // ===== GNU RADIO TRANSMISSION EVENTS =====
+        // Establish WebSocket connection to GNU Radio backend
         document.getElementById('connectBtn').addEventListener('click', () => this.connectToGNURadio());
+        
+        // Send a predefined test AIS message to verify transmission
         document.getElementById('testTransmissionBtn').addEventListener('click', () => this.sendTestMessage());
 
-        // Tab switching
+        // ===== BOOTSTRAP TAB SWITCHING =====
+        // Handle map tab activation with proper initialization and sizing
         document.addEventListener('shown.bs.tab', (e) => {
             if (e.target.id === 'map-tab') {
                 // Initialize map when map tab is shown (with delay for DOM)
@@ -82,7 +160,8 @@ class SIRENWebApp {
             }
         });
 
-        // Keyboard events for waypoint picking
+        // ===== KEYBOARD EVENTS =====
+        // ESC key cancels waypoint picking mode for user convenience
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && this.waypointPickingMode && this.waypointPickingMode.active) {
                 this.disableWaypointPickingMode();
@@ -90,108 +169,153 @@ class SIRENWebApp {
             }
         });
 
-        // Waypoint control buttons
+        // ===== WAYPOINT CONTROL BUTTONS =====
+        // Show all ship waypoints and routes on the map
         document.getElementById('showAllWaypointsBtn').addEventListener('click', () => this.showAllWaypoints());
+        
+        // Hide all waypoint markers and route lines
         document.getElementById('hideAllWaypointsBtn').addEventListener('click', () => this.hideAllWaypoints());
+        
+        // Center map view on all defined waypoints
         document.getElementById('centerOnWaypointsBtn').addEventListener('click', () => this.centerOnWaypoints());
     }
 
     // =====================================
-    // SHIP FLEET MANAGEMENT
+    // SHIP FLEET MANAGEMENT FUNCTIONS
     // =====================================
+    // This section handles creation, modification, and removal of virtual ships.
+    // Each ship object contains navigation data, AIS identification info, and
+    // waypoint-based routing capabilities for autonomous movement simulation.
 
+    /**
+     * Display the "Add Ship" modal dialog with a randomly generated MMSI.
+     * MMSI (Maritime Mobile Service Identity) is a unique 9-digit identifier
+     * required for all AIS-transmitting vessels in real maritime operations.
+     * 
+     * The generated MMSI follows ITU-R M.585 standard format but uses
+     * test ranges to avoid conflicts with real vessels.
+     */
     showAddShipModal() {
         // Generate random MMSI (9-digit number, can start with 0)
+        // Range 100000000-999999999 ensures valid 9-digit format
         const randomMMSI = Math.floor(Math.random() * 900000000) + 100000000;
         document.getElementById('shipMMSI').value = randomMMSI;
         
+        // Show Bootstrap modal dialog for ship creation
         const modal = new bootstrap.Modal(document.getElementById('addShipModal'));
         modal.show();
     }
 
+    /**
+     * Process the add ship form and create a new ship object.
+     * Validates all input fields and adds the ship to the fleet.
+     * 
+     * Ship object structure:
+     * - name: Human-readable vessel name
+     * - mmsi: 9-digit unique identifier for AIS transmission
+     * - ship_type: AIS vessel type code (30=Fishing, 70=Cargo, etc.)
+     * - length/beam: Physical dimensions in meters
+     * - lat/lon: Current position in decimal degrees
+     * - course/speed: Navigation state (degrees true, knots)
+     * - status: AIS navigation status code
+     * - waypoints: Array of [lat,lon] coordinates for route planning
+     */
     addShip() {
         const form = document.getElementById('addShipForm');
+        
+        // Use HTML5 form validation first
         if (!form.checkValidity()) {
             form.reportValidity();
             return;
         }
 
-        // Additional MMSI validation
+        // Additional MMSI validation beyond HTML5 constraints
         const mmsiValue = document.getElementById('shipMMSI').value;
         if (mmsiValue.length !== 9) {
             this.showNotification('MMSI must be exactly 9 digits', 'error');
             return;
         }
 
+        // Create ship object with form data and sensible defaults
         const ship = {
             name: document.getElementById('shipName').value,
             mmsi: parseInt(mmsiValue),
             ship_type: parseInt(document.getElementById('shipType').value),
             length: parseFloat(document.getElementById('shipLength').value),
-            beam: 10, // Default beam
+            beam: 10, // Default beam width in meters
             lat: parseFloat(document.getElementById('shipLat').value),
             lon: parseFloat(document.getElementById('shipLon').value),
             course: parseFloat(document.getElementById('shipCourse').value),
             speed: parseFloat(document.getElementById('shipSpeed').value),
-            status: 0, // Under way using engine
-            turn: 0,
-            destination: "",
-            accuracy: 1,
-            heading: parseFloat(document.getElementById('shipCourse').value),
-            waypoints: [],
-            current_waypoint: -1,
-            waypoint_radius: 0.01
+            status: 0, // Under way using engine (AIS status code)
+            turn: 0,   // Rate of turn in degrees/minute
+            destination: "", // Free-form destination text
+            accuracy: 1,     // GPS accuracy flag (1 = high accuracy <10m)
+            heading: parseFloat(document.getElementById('shipCourse').value), // True heading
+            waypoints: [],        // Route waypoints for autonomous navigation
+            current_waypoint: -1, // Index of current target waypoint (-1 = not navigating)
+            waypoint_radius: 0.01 // Arrival radius in degrees (~1km at equator)
         };
 
+        // Add to fleet and persist data
         this.ships.push(ship);
         this.saveShipsToStorage();
         this.updateUI();
         
+        // Close modal and reset form
         const modal = bootstrap.Modal.getInstance(document.getElementById('addShipModal'));
         modal.hide();
-        
         form.reset();
         
         this.showNotification('Ship added successfully', 'success');
     }
 
+    /**
+     * Remove a ship from the fleet with confirmation dialog.
+     * Also cleans up all associated map markers, waypoints, and track data
+     * to prevent memory leaks and orphaned visual elements.
+     * 
+     * @param {number} index - Index of ship in the ships array
+     */
     removeShip(index) {
         if (confirm(`Remove ship "${this.ships[index].name}"?`)) {
             const ship = this.ships[index];
             const mmsi = ship.mmsi;
             
-            // Clean up map markers and routes for this ship
+            // ===== CLEAN UP MAP VISUALIZATION DATA =====
+            // This prevents orphaned markers and lines from remaining on map
             if (this.map) {
-                // Remove ship marker
+                // Remove ship position marker
                 if (this.mapState.shipMarkers && this.mapState.shipMarkers.has(mmsi)) {
                     this.map.removeLayer(this.mapState.shipMarkers.get(mmsi));
                     this.mapState.shipMarkers.delete(mmsi);
                 }
                 
-                // Remove waypoint markers
+                // Remove waypoint markers (route planning indicators)
                 if (this.mapState.waypoints && this.mapState.waypoints.has(mmsi)) {
                     this.mapState.waypoints.get(mmsi).forEach(marker => this.map.removeLayer(marker));
                     this.mapState.waypoints.delete(mmsi);
                 }
                 
-                // Remove route lines
+                // Remove route lines (planned path visualization)
                 if (this.mapState.routeLines && this.mapState.routeLines.has(mmsi)) {
                     this.mapState.routeLines.get(mmsi).forEach(line => this.map.removeLayer(line));
                     this.mapState.routeLines.delete(mmsi);
                 }
                 
-                // Remove ship tracks
+                // Remove ship movement tracks (historical path)
                 if (this.mapState.shipTracks && this.mapState.shipTracks.has(mmsi)) {
                     this.mapState.shipTracks.delete(mmsi);
                 }
                 
-                // Remove track lines
+                // Remove track lines (visual representation of movement history)
                 if (this.mapState.trackLines && this.mapState.trackLines.has(mmsi)) {
                     this.map.removeLayer(this.mapState.trackLines.get(mmsi));
                     this.mapState.trackLines.delete(mmsi);
                 }
             }
             
+            // Remove from ships array and update UI
             this.ships.splice(index, 1);
             this.saveShipsToStorage();
             this.updateUI();
@@ -199,17 +323,34 @@ class SIRENWebApp {
         }
     }
 
+    /**
+     * Create an inline ship editor for modifying vessel properties.
+     * This method dynamically generates a comprehensive form interface
+     * that allows editing of ship navigation data and waypoint management.
+     * 
+     * The editor includes:
+     * - Basic ship properties (name, position, course, speed, status)
+     * - Waypoint management interface with visual list display
+     * - Route planning controls (add, remove, pick from map)
+     * - Navigation control buttons (start/stop waypoint following)
+     * 
+     * @param {number} index - Index of ship to edit in ships array
+     */
     editShip(index) {
         this.currentShipIndex = index;
         const ship = this.ships[index];
         
+        // Generate comprehensive HTML form for ship editing
         const editor = document.getElementById('shipEditor');
         editor.innerHTML = `
             <form id="shipEditForm">
+                <!-- BASIC SHIP PROPERTIES -->
                 <div class="mb-2">
                     <label class="form-label">Name</label>
                     <input type="text" class="form-control form-control-sm" id="editName" value="${ship.name}">
                 </div>
+                
+                <!-- GEOGRAPHIC POSITION (latitude/longitude in decimal degrees) -->
                 <div class="mb-2">
                     <label class="form-label">Position</label>
                     <div class="row">
@@ -221,6 +362,8 @@ class SIRENWebApp {
                         </div>
                     </div>
                 </div>
+                
+                <!-- NAVIGATION PARAMETERS -->
                 <div class="mb-2">
                     <label class="form-label">Course (°)</label>
                     <input type="number" class="form-control form-control-sm" id="editCourse" value="${ship.course}" min="0" max="359">
@@ -229,6 +372,8 @@ class SIRENWebApp {
                     <label class="form-label">Speed (knots)</label>
                     <input type="number" class="form-control form-control-sm" id="editSpeed" value="${ship.speed}" min="0" max="50">
                 </div>
+                
+                <!-- AIS NAVIGATION STATUS (standardized codes) -->
                 <div class="mb-2">
                     <label class="form-label">Status</label>
                     <select class="form-control form-control-sm" id="editStatus">
@@ -241,19 +386,20 @@ class SIRENWebApp {
                     </select>
                 </div>
                 
-                <!-- Waypoint Management Section -->
+                <!-- WAYPOINT NAVIGATION SYSTEM -->
+                <!-- This section provides complete route planning and management -->
                 <div class="mb-3">
                     <hr>
                     <h6><i class="fas fa-route"></i> Waypoint Navigation</h6>
                     
-                    <!-- Waypoint List -->
+                    <!-- Scrollable list of defined waypoints with coordinates -->
                     <div class="waypoint-list mb-2" style="max-height: 150px; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 4px; padding: 5px;">
                         <div id="waypointList-${index}">
                             ${this.renderWaypointList(ship.waypoints || [])}
                         </div>
                     </div>
                     
-                    <!-- Add Waypoint Controls -->
+                    <!-- Manual waypoint coordinate entry -->
                     <div class="row mb-2">
                         <div class="col-5">
                             <input type="number" class="form-control form-control-sm" id="waypointLat-${index}" placeholder="Latitude" step="0.000001">
@@ -268,22 +414,27 @@ class SIRENWebApp {
                         </div>
                     </div>
                     
-                    <!-- Waypoint Controls -->
+                    <!-- Waypoint management controls -->
                     <div class="btn-group btn-group-sm w-100 mb-2">
+                        <!-- Interactive map waypoint selection -->
                         <button type="button" class="btn btn-outline-info" onclick="sirenApp.pickWaypointFromMap(${index})" title="Pick from Map">
                             <i class="fas fa-map-marker-alt"></i> Pick from Map
                         </button>
+                        <!-- Remove all waypoints for this ship -->
                         <button type="button" class="btn btn-outline-warning" onclick="sirenApp.clearWaypoints(${index})" title="Clear All">
                             <i class="fas fa-trash"></i> Clear All
                         </button>
+                        <!-- Begin autonomous waypoint navigation -->
                         <button type="button" class="btn btn-outline-success" onclick="sirenApp.startWaypointNavigation(${index})" title="Start Navigation">
                             <i class="fas fa-play"></i> Start Nav
                         </button>
                     </div>
                     
+                    <!-- Current navigation status display -->
                     <small class="text-muted">Ship will navigate to waypoints in order. Current: ${ship.current_waypoint >= 0 ? ship.current_waypoint + 1 : 'None'}</small>
                 </div>
                 
+                <!-- FORM ACTION BUTTONS -->
                 <div class="d-grid gap-1">
                     <button type="button" class="btn btn-siren btn-sm" onclick="sirenApp.updateShip()">Update</button>
                     <button type="button" class="btn btn-outline-secondary btn-sm" onclick="sirenApp.clearEditor()">Cancel</button>
@@ -292,24 +443,38 @@ class SIRENWebApp {
         `;
     }
 
+    /**
+     * Update ship properties from the editor form.
+     * Applies changes made in the inline editor to the ship object
+     * and synchronizes heading with course for realistic navigation.
+     */
     updateShip() {
         if (this.currentShipIndex === -1) return;
         
         const ship = this.ships[this.currentShipIndex];
+        
+        // Update ship properties from form inputs
         ship.name = document.getElementById('editName').value;
         ship.lat = parseFloat(document.getElementById('editLat').value);
         ship.lon = parseFloat(document.getElementById('editLon').value);
         ship.course = parseFloat(document.getElementById('editCourse').value);
         ship.speed = parseFloat(document.getElementById('editSpeed').value);
         ship.status = parseInt(document.getElementById('editStatus').value);
+        
+        // Keep heading synchronized with course for realistic AIS data
         ship.heading = ship.course;
         
+        // Persist changes and update UI
         this.saveShipsToStorage();
         this.updateUI();
         this.clearEditor();
         this.showNotification('Ship updated', 'success');
     }
 
+    /**
+     * Clear the ship editor and reset to default state.
+     * Returns the editor panel to its initial empty state.
+     */
     clearEditor() {
         this.currentShipIndex = -1;
         document.getElementById('shipEditor').innerHTML = '<p class="text-muted">Select a ship to edit its properties</p>';
@@ -563,10 +728,27 @@ class SIRENWebApp {
     }
 
     // =====================================
-    // SIMULATION CONTROL
+    // REAL-TIME SIMULATION CONTROL SYSTEM
     // =====================================
+    // This section manages the core simulation loop that moves ships in real-time
+    // and generates AIS messages for transmission. The simulation uses a time-based
+    // approach with configurable intervals and proper ship selection management.
 
+    /**
+     * Start the real-time ship simulation with selected vessels.
+     * 
+     * This method initiates a complex process that:
+     * 1. Validates ship data and ensures GNU Radio connection
+     * 2. Locks ship selection to prevent UI interference during simulation
+     * 3. Begins interval-based ship movement and AIS message generation
+     * 4. Manages timing to prevent message collisions on AIS channels
+     * 
+     * The simulation uses a "locked selection" approach to ensure that the
+     * ships being simulated cannot be changed mid-simulation, preventing
+     * data corruption and maintaining consistent behavior.
+     */
     startSimulation() {
+        // ===== PRE-SIMULATION VALIDATION =====
         if (this.ships.length === 0) {
             this.showNotification('No ships available to simulate', 'warning');
             return;
@@ -577,15 +759,17 @@ class SIRENWebApp {
             return;
         }
 
-        // Validate and clean ship data before starting simulation
+        // Validate and clean ship data to prevent runtime errors
         this.validateAndCleanShipData();
 
+        // ===== SIMULATION STATE INITIALIZATION =====
         this.simulation.active = true;
         this.simulation.interval = parseInt(document.getElementById('simulationInterval').value);
         this.simulation.messageCount = 0;
         this.simulation.startTime = new Date();
 
-        // Get selected ships - require explicit selection
+        // ===== SHIP SELECTION AND LOCKING =====
+        // Get explicitly selected ships from the UI multiselect
         const selectedOptions = Array.from(document.getElementById('selectedShips').selectedOptions);
         if (selectedOptions.length === 0) {
             this.showNotification('Please select at least one ship for simulation', 'warning');
@@ -593,14 +777,17 @@ class SIRENWebApp {
             return;
         }
         
-        // Lock the selection to prevent changes during simulation
+        // Lock the selection to prevent UI changes during simulation
+        // This is critical for preventing data corruption and ensuring
+        // consistent simulation behavior
         this.selectedShips = selectedOptions.map(option => parseInt(option.value));
-        this.simulation.lockedSelection = [...this.selectedShips]; // Create a locked copy
+        this.simulation.lockedSelection = [...this.selectedShips]; // Create immutable copy
         
-        // Disable the ship selection UI during simulation
+        // Disable ship selection UI to prevent user interference
         document.getElementById('selectedShips').disabled = true;
         
-        // Critical debugging: Log which ships are selected
+        // ===== DEBUGGING AND VALIDATION =====
+        // Extensive logging for troubleshooting simulation issues
         console.log('=== SIMULATION STARTED ===');
         console.log(`Selected ship indices: [${this.selectedShips.join(', ')}]`);
         console.log(`Locked selection: [${this.simulation.lockedSelection.join(', ')}]`);
@@ -622,33 +809,40 @@ class SIRENWebApp {
             }
         });
         
-        // Store selected ship details for validation
+        // Store selected ship details for validation during simulation
         this.simulation.selectedShipDetails = selectedShipDetails;
         
-        // Log all ship MMSIs for comparison
+        // Log all ships for comparison and debugging
         console.log('All ships in fleet:');
         this.ships.forEach((ship, index) => {
             console.log(`  ${index}: ${ship.name} (MMSI: ${ship.mmsi}) - ${this.selectedShips.includes(index) ? 'SELECTED' : 'not selected'}`);
         });
 
-        // Update UI
+        // ===== UI STATE UPDATES =====
         document.getElementById('startSimulationBtn').disabled = true;
         document.getElementById('stopSimulationBtn').disabled = false;
         document.getElementById('simulationStatus').textContent = 'Running';
         document.getElementById('simulationStatus').className = 'badge bg-success';
         document.getElementById('activeShipCount').textContent = this.selectedShips.length;
 
-        // Start simulation loop
+        // ===== START SIMULATION LOOP =====
+        // Run first simulation step immediately, then set up interval
         this.runSimulationStep();
         this.simulation.intervalId = setInterval(() => this.runSimulationStep(), this.simulation.interval * 1000);
 
+        // Log and notify successful start
         this.logMessage('simulationLog', `Started simulation with ${this.selectedShips.length} ships: ${selectedShipDetails.map(s => s.name).join(', ')}`);
         this.showNotification('Simulation started', 'success');
     }
 
+    /**
+     * Stop the real-time simulation and clean up resources.
+     * Restores UI to normal state and unlocks ship selection.
+     */
     stopSimulation() {
         this.simulation.active = false;
         
+        // Clear the simulation interval timer
         if (this.simulation.intervalId) {
             clearInterval(this.simulation.intervalId);
             this.simulation.intervalId = null;
@@ -658,7 +852,7 @@ class SIRENWebApp {
         this.simulation.lockedSelection = [];
         document.getElementById('selectedShips').disabled = false;
 
-        // Update UI
+        // Update UI to reflect stopped state
         document.getElementById('startSimulationBtn').disabled = false;
         document.getElementById('stopSimulationBtn').disabled = true;
         document.getElementById('simulationStatus').textContent = 'Stopped';
@@ -1045,13 +1239,39 @@ class SIRENWebApp {
     }
 
     // =====================================
-    // AIS MESSAGE GENERATION
+    // AIS MESSAGE GENERATION SYSTEM
     // =====================================
+    // This section implements the AIS (Automatic Identification System) protocol
+    // for generating standards-compliant maritime vessel position reports.
+    // 
+    // AIS is the international standard for vessel tracking and collision avoidance,
+    // defined by ITU-R M.1371-5. This implementation creates Type 1 Position Reports
+    // which are the most common AIS message type for vessel tracking.
+    //
+    // MESSAGE STRUCTURE:
+    // - AIS messages use a 6-bit ASCII encoding scheme
+    // - Data is packed into bit fields with specific lengths and formats
+    // - Messages are transmitted as NMEA 0183 sentences (AIVDM format)
+    // - Checksums ensure data integrity during transmission
 
+    /**
+     * Generate a complete AIS Type 1 Position Report message.
+     * 
+     * This method creates a standards-compliant AIS message containing:
+     * - Vessel identification (MMSI, ship type)
+     * - Position data (latitude, longitude, accuracy)
+     * - Navigation data (course, speed, heading, rate of turn)
+     * - Status information (navigation status, timestamp)
+     * 
+     * The resulting message follows NMEA 0183 format:
+     * !AIVDM,1,1,,A,<payload>,0*<checksum>
+     * 
+     * @param {Object} ship - Ship object with navigation data
+     * @param {string} channel - AIS channel ('A' or 'B' for VHF channels 87B/88B)
+     * @returns {string} Complete NMEA 0183 AIS message ready for transmission
+     */
     generateAISMessage(ship, channel = 'A') {
-        // Light validation only - main validation should be done before this point
-        
-        // Use ship data as-is since it should already be validated
+        // Extract ship data - validation should be done before this point
         const mmsi = ship.mmsi;
         const lat = ship.lat;
         const lon = ship.lon;
@@ -1060,7 +1280,8 @@ class SIRENWebApp {
         const heading = ship.heading;
         const status = ship.status;
         
-        // Final safety checks - only log warnings, don't change values
+        // Final safety checks - log warnings but don't modify values
+        // (Modifications at this stage could cause simulation inconsistencies)
         if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
             console.warn(`${ship.name}: Position out of range in AIS generation: ${lat}, ${lon}`);
         }
@@ -1071,92 +1292,133 @@ class SIRENWebApp {
             console.warn(`${ship.name}: Course out of range in AIS generation: ${course}`);
         }
         
-        // Log the values being encoded
+        // Log the exact values being encoded for debugging
         console.log(`Generating AIS for ${ship.name}: MMSI=${mmsi}, lat=${lat.toFixed(6)}, lon=${lon.toFixed(6)}, course=${course.toFixed(1)}, speed=${speed.toFixed(1)}, heading=${heading.toFixed(1)}, status=${status}`);
         
-        // Create AIS Type 1 Position Report
+        // ===== AIS TYPE 1 MESSAGE FIELD STRUCTURE =====
+        // Create standardized AIS Type 1 Position Report fields
         const fields = {
-            msg_type: 1,
-            repeat: 0,
-            mmsi: mmsi,
-            nav_status: status,
-            rot: ship.turn || 0,
-            sog: speed,
-            accuracy: ship.accuracy || 1,
-            lon: lon,
-            lat: lat,
-            cog: course,
-            hdg: heading,
-            timestamp: new Date().getSeconds() % 60
+            msg_type: 1,                    // Message type 1 = Position Report Class A
+            repeat: 0,                      // Repeat indicator (0 = default)
+            mmsi: mmsi,                     // Maritime Mobile Service Identity
+            nav_status: status,             // Navigation status (0-15, see AIS standard)
+            rot: ship.turn || 0,            // Rate of turn (-127 to +127 degrees/minute)
+            sog: speed,                     // Speed over ground (knots)
+            accuracy: ship.accuracy || 1,   // Position accuracy (1 = high <10m, 0 = low >10m)
+            lon: lon,                       // Longitude (decimal degrees)
+            lat: lat,                       // Latitude (decimal degrees)
+            cog: course,                    // Course over ground (degrees true)
+            hdg: heading,                   // True heading (degrees)
+            timestamp: new Date().getSeconds() % 60  // UTC seconds (0-59)
         };
 
-        // Build AIS payload
+        // Build the binary payload using AIS bit packing rules
         const payload = this.buildAISPayload(fields);
+        
+        // Create NMEA 0183 sentence structure
+        // Format: AIVDM,<fragment_count>,<fragment_number>,<message_id>,<channel>,<payload>,<padding>
         const sentence = `AIVDM,1,1,,${channel},${payload},0`;
+        
+        // Calculate NMEA checksum (XOR of all characters between $ and *)
         const checksum = this.computeChecksum(sentence);
         
+        // Return complete NMEA sentence with start delimiter and checksum
         return `!${sentence}*${checksum}`;
     }
 
+    /**
+     * Build the AIS message payload using bit-level packing.
+     * 
+     * This method implements the exact AIS Type 1 message structure as defined
+     * in ITU-R M.1371-5, packing navigation data into a binary bit string
+     * and converting it to 6-bit ASCII encoding for transmission.
+     * 
+     * AIS TYPE 1 BIT STRUCTURE (total 168 bits):
+     * - Message Type: 6 bits (always 1 for Position Report)
+     * - Repeat Indicator: 2 bits
+     * - MMSI: 30 bits
+     * - Navigation Status: 4 bits
+     * - Rate of Turn: 8 bits (signed, with special encoding)
+     * - Speed Over Ground: 10 bits (0.1 knot resolution)
+     * - Position Accuracy: 1 bit
+     * - Longitude: 28 bits (signed, 1/600000 minute resolution)
+     * - Latitude: 27 bits (signed, 1/600000 minute resolution)  
+     * - Course Over Ground: 12 bits (0.1 degree resolution)
+     * - True Heading: 9 bits (1 degree resolution)
+     * - Timestamp: 6 bits (UTC seconds)
+     * - Regional: 4 bits (reserved)
+     * - Spare: 3 bits
+     * - RAIM: 1 bit (integrity flag)
+     * - Communication State: 19 bits
+     * 
+     * @param {Object} fields - AIS message fields with navigation data
+     * @returns {string} 6-bit ASCII encoded payload string
+     */
     buildAISPayload(fields) {
-        // AIS payload generation following AIS specification
+        // Initialize binary bit string for message construction
         let bits = '';
         
-        // Message type (6 bits)
-        bits += this.toBits(fields.msg_type, 6);
-        // Repeat indicator (2 bits) 
-        bits += this.toBits(fields.repeat, 2);
-        // MMSI (30 bits)
-        bits += this.toBits(fields.mmsi, 30);
-        // Navigation status (4 bits)
-        bits += this.toBits(fields.nav_status, 4);
-        // Rate of turn (8 bits) - signed value with offset
+        // ===== PACK MESSAGE HEADER =====
+        bits += this.toBits(fields.msg_type, 6);      // Message type (always 1)
+        bits += this.toBits(fields.repeat, 2);        // Repeat indicator
+        bits += this.toBits(fields.mmsi, 30);         // MMSI (30-bit unique identifier)
+        bits += this.toBits(fields.nav_status, 4);    // Navigation status
+        
+        // ===== RATE OF TURN (SPECIAL ENCODING) =====
+        // Rate of turn uses special encoding with offset and saturation values
         const rotValue = Math.max(-127, Math.min(127, Math.round(fields.rot)));
-        bits += this.toBits(rotValue + 128, 8);
-        // Speed over ground (10 bits) - in 0.1 knot resolution, max 102.2 knots
+        bits += this.toBits(rotValue + 128, 8);       // ROT with 128 offset for signed values
+        
+        // ===== SPEED OVER GROUND =====
+        // Speed in 0.1 knot resolution, max 102.2 knots (value 1022)
         const sogValue = Math.max(0, Math.min(1022, Math.round(fields.sog * 10)));
         bits += this.toBits(sogValue, 10);
-        // Position accuracy (1 bit)
+        
+        // ===== POSITION ACCURACY FLAG =====
         bits += this.toBits(fields.accuracy, 1);
         
-        // Longitude (28 bits) - in 1/600000 minute resolution, signed
+        // ===== LONGITUDE (SIGNED 28-BIT) =====
+        // Longitude in 1/600000 minute resolution (approximately 1.85m at equator)
         let lonValue = Math.round(fields.lon * 600000);
-        // Clamp to valid range
-        lonValue = Math.max(-180*600000, Math.min(180*600000, lonValue));
+        lonValue = Math.max(-180*600000, Math.min(180*600000, lonValue));  // Clamp to valid range
         bits += this.toSignedBits(lonValue, 28);
         
-        // Latitude (27 bits) - in 1/600000 minute resolution, signed  
+        // ===== LATITUDE (SIGNED 27-BIT) =====  
+        // Latitude in 1/600000 minute resolution
         let latValue = Math.round(fields.lat * 600000);
-        // Clamp to valid range
-        latValue = Math.max(-90*600000, Math.min(90*600000, latValue));
+        latValue = Math.max(-90*600000, Math.min(90*600000, latValue));    // Clamp to valid range
         bits += this.toSignedBits(latValue, 27);
         
-        // Course over ground (12 bits) - in 0.1 degree resolution, 0-3599 (0-359.9°)
+        // ===== COURSE OVER GROUND =====
+        // Course in 0.1 degree resolution, range 0-359.9° (values 0-3599)
         const cogValue = Math.max(0, Math.min(3599, Math.round(fields.cog * 10)));
         bits += this.toBits(cogValue, 12);
-        // True heading (9 bits) - in 1 degree resolution, 0-359
+        
+        // ===== TRUE HEADING =====
+        // Heading in 1 degree resolution, range 0-359°
         const hdgValue = Math.max(0, Math.min(359, Math.round(fields.hdg)));
         bits += this.toBits(hdgValue, 9);
-        // Time stamp (6 bits)
-        bits += this.toBits(fields.timestamp, 6);
-        // Regional (4 bits)
-        bits += this.toBits(0, 4);
-        // Spare (3 bits)
-        bits += this.toBits(0, 3);
-        // RAIM flag (1 bit)
-        bits += this.toBits(0, 1);
-        // Communication state (19 bits)
-        bits += this.toBits(0, 19);
+        
+        // ===== TIMESTAMP =====
+        bits += this.toBits(fields.timestamp, 6);     // UTC seconds (0-59)
+        
+        // ===== RESERVED/SPARE FIELDS =====
+        bits += this.toBits(0, 4);                    // Regional reserved
+        bits += this.toBits(0, 3);                    // Spare bits
+        bits += this.toBits(0, 1);                    // RAIM flag (integrity indicator)
+        bits += this.toBits(0, 19);                   // Communication state
 
-        // Debug: log the total bit length
+        // Debug logging for bit string validation
         console.log(`AIS bit string length: ${bits.length} bits`);
         
-        // Pad to multiple of 6 bits
+        // ===== PAD TO 6-BIT BOUNDARY =====
+        // AIS uses 6-bit ASCII encoding, so bit string must be multiple of 6
         while (bits.length % 6 !== 0) {
             bits += '0';
         }
 
-        // Convert to 6-bit ASCII
+        // ===== CONVERT TO 6-BIT ASCII =====
+        // Convert binary bit string to AIS 6-bit ASCII character encoding
         let payload = '';
         for (let i = 0; i < bits.length; i += 6) {
             const sixBits = parseInt(bits.substr(i, 6), 2);
@@ -1166,25 +1428,46 @@ class SIRENWebApp {
         return payload;
     }
 
+    /**
+     * Convert a decimal value to binary bits with specified length.
+     * Used for packing unsigned integer values into AIS bit fields.
+     * 
+     * @param {number} value - Unsigned integer value to convert
+     * @param {number} length - Number of bits in the output
+     * @returns {string} Binary string padded to specified length
+     */
     toBits(value, length) {
-        // Handle unsigned values only
+        // Handle unsigned values only - negative values indicate error
         if (value < 0) {
             console.warn(`toBits called with negative value ${value}, using 0`);
             value = 0;
         }
+        
+        // Clamp value to maximum representable in specified bit length
         const maxValue = (1 << length) - 1;
         if (value > maxValue) {
             console.warn(`toBits: value ${value} exceeds max ${maxValue} for ${length} bits`);
             value = maxValue;
         }
+        
+        // Convert to binary string and pad with leading zeros
         return value.toString(2).padStart(length, '0');
     }
 
+    /**
+     * Convert a signed decimal value to two's complement binary representation.
+     * Used for latitude, longitude, and other signed AIS fields.
+     * 
+     * @param {number} value - Signed integer value to convert
+     * @param {number} length - Number of bits in the output
+     * @returns {string} Binary string in two's complement format
+     */
     toSignedBits(value, length) {
-        // Handle signed numbers (two's complement)
-        const maxValue = (1 << (length - 1)) - 1;
-        const minValue = -(1 << (length - 1));
+        // Calculate valid range for signed values
+        const maxValue = (1 << (length - 1)) - 1;     // 2^(n-1) - 1
+        const minValue = -(1 << (length - 1));        // -2^(n-1)
         
+        // Clamp to valid signed range
         if (value > maxValue) {
             console.warn(`toSignedBits: value ${value} exceeds max ${maxValue} for ${length} bits`);
             value = maxValue;
@@ -1194,137 +1477,245 @@ class SIRENWebApp {
             value = minValue;
         }
         
-        // Convert negative to unsigned representation
+        // Convert negative numbers to unsigned two's complement representation
         if (value < 0) {
-            value = (1 << length) + value;
+            value = (1 << length) + value;  // Add 2^length to negative value
         }
+        
+        // Return binary string padded to specified length
         return value.toString(2).padStart(length, '0');
     }
 
+    /**
+     * Convert 6-bit value to AIS character encoding.
+     * AIS uses a modified ASCII encoding where values 0-63 map to specific characters.
+     * 
+     * ENCODING RULES:
+     * - Values 0-39: ASCII 48-87 (characters '0'-'W')
+     * - Values 40-63: ASCII 96-119 (characters '`'-'w')
+     * 
+     * @param {number} val - 6-bit value (0-63)
+     * @returns {string} Single AIS-encoded character
+     */
     sixBitToChar(val) {
-        // AIS 6-bit ASCII encoding - proper implementation
+        // AIS 6-bit ASCII encoding - ITU-R M.1371-5 standard
         if (val < 40) {
-            return String.fromCharCode(val + 48);
+            return String.fromCharCode(val + 48);  // 0-39 -> '0'-'W'
         } else {
-            return String.fromCharCode(val + 56);
+            return String.fromCharCode(val + 56);  // 40-63 -> '`'-'w'
         }
     }
 
+    /**
+     * Compute NMEA 0183 checksum for message validation.
+     * The checksum is calculated as the XOR of all characters in the sentence
+     * (excluding the leading '!' and the checksum itself).
+     * 
+     * @param {string} sentence - NMEA sentence without leading '!' or trailing checksum
+     * @returns {string} Two-digit hexadecimal checksum
+     */
     computeChecksum(sentence) {
         let checksum = 0;
+        
+        // XOR all characters in the sentence
         for (let i = 0; i < sentence.length; i++) {
             checksum ^= sentence.charCodeAt(i);
         }
+        
+        // Return as uppercase hexadecimal with leading zero if needed
         return checksum.toString(16).toUpperCase().padStart(2, '0');
     }
 
     // =====================================
-    // GNU RADIO COMMUNICATION
+    // GNU RADIO COMMUNICATION SYSTEM
     // =====================================
+    // This section handles WebSocket communication with the GNU Radio backend
+    // for transmitting AIS messages via software-defined radio (SDR).
+    // 
+    // The communication flow:
+    // 1. SIREN Web App generates AIS messages in NMEA format
+    // 2. Messages are converted to raw bitstrings
+    // 3. Bitstrings are sent via WebSocket to GNU Radio
+    // 4. GNU Radio modulates and transmits the signals via SDR hardware
+    //
+    // SECURITY NOTE: This system can transmit on actual maritime frequencies.
+    // Ensure proper authorization and compliance with local regulations.
 
+    /**
+     * Establish WebSocket connection to GNU Radio backend.
+     * The backend server handles AIS signal modulation and SDR transmission.
+     * Connection status is monitored and displayed to the user.
+     */
     connectToGNURadio() {
+        // Get WebSocket port from UI configuration
         const port = document.getElementById('websocketPort').textContent;
         const wsUrl = `ws://localhost:${port}/ws`;
 
         try {
+            // Create new WebSocket connection
             this.websocket = new WebSocket(wsUrl);
 
+            // ===== CONNECTION ESTABLISHED =====
             this.websocket.onopen = () => {
                 this.isConnected = true;
+                
+                // Update UI to show successful connection
                 document.getElementById('connectionStatus').textContent = 'Connected';
                 document.getElementById('connectionStatus').className = 'badge bg-success';
                 document.getElementById('testTransmissionBtn').disabled = false;
+                
+                // Log connection success
                 this.logMessage('transmissionLog', 'Connected to GNU Radio backend');
                 this.showNotification('Connected to GNU Radio!', 'success');
             };
 
+            // ===== CONNECTION ERROR =====
             this.websocket.onerror = (error) => {
                 this.isConnected = false;
+                
+                // Update UI to show error state
                 document.getElementById('connectionStatus').textContent = 'Error';
                 document.getElementById('connectionStatus').className = 'badge bg-danger';
+                
+                // Log error details
                 this.logMessage('transmissionLog', `Connection error: ${error}`);
                 this.showNotification('Failed to connect to GNU Radio', 'error');
             };
 
+            // ===== CONNECTION CLOSED =====
             this.websocket.onclose = () => {
                 this.isConnected = false;
+                
+                // Update UI to show disconnected state
                 document.getElementById('connectionStatus').textContent = 'Disconnected';
                 document.getElementById('connectionStatus').className = 'badge bg-warning';
                 document.getElementById('testTransmissionBtn').disabled = true;
+                
+                // Log disconnection
                 this.logMessage('transmissionLog', 'Disconnected from GNU Radio');
             };
 
+            // ===== MESSAGE RECEIVED =====
+            // Handle responses and status messages from GNU Radio backend
             this.websocket.onmessage = (event) => {
                 this.logMessage('transmissionLog', `Received: ${event.data}`);
             };
 
         } catch (error) {
+            // Handle WebSocket creation errors
             this.showNotification('Failed to create websocket connection', 'error');
             console.error('Websocket error:', error);
         }
     }
 
+    /**
+     * Send an AIS message to GNU Radio for transmission.
+     * 
+     * This method processes NMEA-formatted AIS messages and converts them
+     * to raw bitstrings for GNU Radio transmission. The conversion process:
+     * 1. Extract the AIS payload from the NMEA sentence
+     * 2. Convert 6-bit ASCII payload to binary bitstring  
+     * 3. Send raw bitstring via WebSocket to GNU Radio
+     * 4. Update transmission counters and logs
+     * 
+     * @param {string} nmea - Complete NMEA AIS sentence (e.g., !AIVDM,1,1,,A,payload,0*checksum)
+     * @param {string} shipName - Name of transmitting ship for logging
+     * @returns {boolean} Success status of transmission attempt
+     */
     sendAISMessage(nmea, shipName = 'Unknown') {
+        // Verify connection status before attempting transmission
         if (!this.isConnected || !this.websocket) {
             console.warn('Not connected to GNU Radio');
             return false;
         }
 
         try {
-            // Extract payload from NMEA sentence
+            // ===== EXTRACT AIS PAYLOAD FROM NMEA SENTENCE =====
+            // NMEA format: !AIVDM,1,1,,A,<payload>,0*checksum
             const parts = nmea.split(',');
             if (parts.length < 6) {
                 console.error('Invalid NMEA sentence:', nmea);
                 return false;
             }
 
-            const payload = parts[5];
+            const payload = parts[5];  // Extract the AIS payload portion
             
-            // Convert AIS payload to bitstring
+            // ===== CONVERT PAYLOAD TO RAW BITSTRING =====
+            // GNU Radio expects raw binary data, not ASCII-encoded payload
             const bitstring = this.payloadToBitstring(payload);
             
-            // Send raw bitstring to GNU Radio (this is the key!)
+            // ===== TRANSMIT VIA WEBSOCKET =====
+            // Send raw bitstring to GNU Radio for modulation and transmission
             this.websocket.send(bitstring);
             
+            // ===== UPDATE TRANSMISSION STATISTICS =====
             this.simulation.messageCount++;
             document.getElementById('messageCount').textContent = this.simulation.messageCount;
             document.getElementById('totalPackets').textContent = this.simulation.messageCount;
             
-            // Log the complete NMEA sentence for debugging
+            // ===== LOG TRANSMISSION =====
+            // Log the complete NMEA sentence for debugging and audit trail
             this.logMessage('transmissionLog', `${shipName}: ${nmea}`);
             return true;
 
         } catch (error) {
+            // Handle transmission errors gracefully
             console.error('Failed to send AIS message:', error);
             this.logMessage('transmissionLog', `Error sending ${shipName}: ${error.message}`);
             return false;
         }
     }
 
+    /**
+     * Convert AIS 6-bit ASCII payload to raw binary bitstring.
+     * 
+     * This method reverses the AIS encoding process, converting the
+     * 6-bit ASCII characters back to their original binary representation
+     * for transmission by GNU Radio.
+     * 
+     * CONVERSION PROCESS:
+     * 1. Each ASCII character represents a 6-bit value
+     * 2. Characters are decoded using AIS character mapping
+     * 3. Each 6-bit value is converted to binary string
+     * 4. All binary strings are concatenated into final bitstring
+     * 
+     * @param {string} payload - AIS payload in 6-bit ASCII encoding
+     * @returns {string} Raw binary bitstring for GNU Radio transmission
+     */
     payloadToBitstring(payload) {
         let bitstring = '';
+        
+        // Process each character in the payload
         for (let i = 0; i < payload.length; i++) {
-            const char = payload.charCodeAt(i);
+            const char = payload.charCodeAt(i);  // Get ASCII code
             let val;
             
+            // Decode AIS 6-bit ASCII character mapping
             if (char >= 48 && char < 88) {
-                val = char - 48;
+                val = char - 48;    // Characters '0'-'W' (values 0-39)
             } else if (char >= 96 && char < 128) {
-                val = char - 56;
+                val = char - 56;    // Characters '`'-'w' (values 40-63)
             } else {
                 continue; // Skip invalid characters
             }
             
-            // Convert to 6 bits
+            // Convert 6-bit value to binary string
             for (let j = 5; j >= 0; j--) {
                 bitstring += ((val >> j) & 1).toString();
             }
         }
+        
         return bitstring;
     }
 
+    /**
+     * Send a predefined test message to verify GNU Radio connectivity.
+     * Uses a known-good AIS message to test the transmission pipeline.
+     */
     sendTestMessage() {
+        // Predefined AIS test message (valid Type 1 position report)
         const testNMEA = '!AIVDM,1,1,,A,14eG;o@034o8sd<L9i:a;WF>062D,0*7D';
+        
         if (this.sendAISMessage(testNMEA, 'Test Vessel')) {
             this.showNotification('Test message sent', 'success');
         } else {
@@ -2545,36 +2936,63 @@ class SIRENWebApp {
     }
 
     // =====================================
-    // UTILITY FUNCTIONS
+    // UTILITY FUNCTIONS AND SYSTEM HELPERS
     // =====================================
+    // This section contains general-purpose utilities used throughout the application
+    // for logging, notifications, data validation, and user interface management.
 
+    /**
+     * Add a timestamped message to a log display element.
+     * Used for debugging, audit trails, and user feedback during simulation.
+     * 
+     * @param {string} elementId - ID of DOM element to append log message
+     * @param {string} message - Log message content
+     */
     logMessage(elementId, message) {
         const logElement = document.getElementById(elementId);
         const timestamp = new Date().toLocaleTimeString();
         const logEntry = document.createElement('div');
+        
+        // Format log entry with timestamp and message
         logEntry.innerHTML = `<span class="text-muted">${timestamp}</span> ${message}`;
+        
+        // Add to log and auto-scroll to bottom
         logElement.appendChild(logEntry);
         logElement.scrollTop = logElement.scrollHeight;
     }
 
+    /**
+     * Display a user notification using the Noty library.
+     * Provides consistent, non-intrusive feedback for user actions.
+     * 
+     * @param {string} message - Notification text to display
+     * @param {string} type - Notification type ('info', 'success', 'warning', 'error')
+     */
     showNotification(message, type = 'info') {
         new Noty({
-            layout: 'topRight',
-            text: message,
-            type: type,
-            timeout: 3000,
-            progressBar: true,
-            closeWith: ['click']
-
+            layout: 'topRight',      // Position notifications in top-right corner
+            text: message,           // Message content
+            type: type,              // Visual style based on message type
+            timeout: 3000,           // Auto-hide after 3 seconds
+            progressBar: true,       // Show countdown progress bar
+            closeWith: ['click']     // Allow click-to-dismiss
         }).show();
     }
 
-    // Add connection status indicator
+    // ===== MAP UTILITY FUNCTIONS =====
+    // These functions support the interactive mapping system for visualization
+
+    /**
+     * Add connection status indicator to the map interface.
+     * Shows whether the application is online or offline for tile access.
+     */
     addConnectionStatus() {
         const connectionControl = L.control({position: 'topleft'});
         
         connectionControl.onAdd = function(map) {
             const div = L.DomUtil.create('div', 'connection-status');
+            
+            // Style the connection status indicator
             div.style.cssText = `
                 background: rgba(255,255,255,0.95);
                 padding: 8px 12px;
@@ -2586,6 +3004,7 @@ class SIRENWebApp {
                 margin: 10px;
             `;
             
+            // Function to update status display based on connection
             const updateStatus = () => {
                 const isOnline = navigator.onLine;
                 const iconClass = isOnline ? 'fa-wifi' : 'fa-wifi-slash';
@@ -2600,9 +3019,10 @@ class SIRENWebApp {
                 div.style.backgroundColor = bgColor;
             };
             
+            // Initialize status display
             updateStatus();
             
-            // Update status when connection changes
+            // Update when connection status changes
             window.addEventListener('online', updateStatus);
             window.addEventListener('offline', updateStatus);
             
@@ -2612,12 +3032,17 @@ class SIRENWebApp {
         connectionControl.addTo(this.map);
     }
 
-    // Add mouse coordinates display
+    /**
+     * Add mouse coordinates display to the map interface.
+     * Shows real-time latitude/longitude coordinates as user moves mouse.
+     */
     addMouseCoordinates() {
         const coordsControl = L.control({position: 'bottomright'});
         
         coordsControl.onAdd = function(map) {
             const div = L.DomUtil.create('div', 'mouse-coordinates');
+            
+            // Style coordinates display
             div.style.cssText = `
                 background: rgba(0,0,0,0.8);
                 color: white;
@@ -2637,7 +3062,7 @@ class SIRENWebApp {
         
         coordsControl.addTo(this.map);
         
-        // Update coordinates on mouse move
+        // Update coordinates on mouse movement
         this.map.on('mousemove', (e) => {
             const coords = document.querySelector('.mouse-coordinates');
             if (coords) {
@@ -2656,7 +3081,12 @@ class SIRENWebApp {
         });
     }
 
-    // Handle connection changes
+    /**
+     * Handle changes in internet connectivity status.
+     * Updates map layers and notifies user of connectivity changes.
+     * 
+     * @param {boolean} isOnline - Current connection status
+     */
     handleConnectionChange(isOnline) {
         const message = isOnline ? 
             'Internet connection restored - Online maps available' : 
@@ -2669,25 +3099,53 @@ class SIRENWebApp {
             this.mapState.isOnline = isOnline;
         }
         
-        // Update available layers
+        // Update available map layers based on connection
         this.updateAvailableLayers(isOnline);
         
         console.log(`Connection status changed: ${isOnline ? 'Online' : 'Offline'}`);
     }
 
-    // Update available map layers based on connection status
+    /**
+     * Update available map layers based on connection status.
+     * Manages fallback between online and offline tile sources.
+     * 
+     * @param {boolean} isOnline - Current internet connectivity status
+     */
     updateAvailableLayers(isOnline) {
         // This could refresh the layer control to show/hide online layers
-        // For now, we'll just log the change
+        // Currently logs the change for debugging
         console.log(`Map layers updated for ${isOnline ? 'online' : 'offline'} mode`);
     }
 }
 
-// Initialize SIREN when page loads
+// =====================================
+// APPLICATION INITIALIZATION
+// =====================================
+// Global application instance and startup code
+
+/**
+ * Global SIREN application instance.
+ * This variable provides access to the application from onclick handlers
+ * and other contexts where the class instance is needed.
+ */
 let sirenApp;
+
+/**
+ * Initialize the SIREN application when the DOM is fully loaded.
+ * This ensures all HTML elements are available before the application starts.
+ */
 document.addEventListener('DOMContentLoaded', () => {
+    // Create and initialize the main application instance
     sirenApp = new SIRENWebApp();
+    
+    console.log('SIREN Web Application fully loaded and ready');
 });
 
-// Make sirenApp globally available for onclick handlers
+/**
+ * Make the SIREN application globally accessible.
+ * Required for onclick handlers in dynamically generated HTML content.
+ * 
+ * SECURITY NOTE: Global variables can be accessed by any script on the page.
+ * In production environments, consider using more secure event handling patterns.
+ */
 window.sirenApp = sirenApp;
