@@ -624,24 +624,48 @@ class SIRENWebApp {
 
         const channel = document.getElementById('aisChannel').value;
         
+        // Process all ships - move them first, then transmit with proper timing
         this.selectedShips.forEach((shipIndex, i) => {
             const ship = this.ships[shipIndex];
             if (!ship) return;
 
-            // Move the ship
+            // Store previous position for logging
+            const prevLat = ship.lat;
+            const prevLon = ship.lon;
+            const prevCourse = ship.course;
+
+            // Move the ship FIRST
             this.moveShip(ship);
 
-            // Generate AIS message
-            const aisMessage = this.generateAISMessage(ship, channel);
-            
-            // Send to GNU Radio
-            this.sendAISMessage(aisMessage, ship.name);
+            // Log movement details for debugging
+            const moved = (Math.abs(ship.lat - prevLat) > 0.0001 || Math.abs(ship.lon - prevLon) > 0.0001);
+            if (moved) {
+                this.logMessage('simulationLog', 
+                    `${ship.name}: Moved from ${prevLat.toFixed(6)},${prevLon.toFixed(6)} to ${ship.lat.toFixed(6)},${ship.lon.toFixed(6)} ` +
+                    `(Course: ${ship.course.toFixed(1)}°, Speed: ${ship.speed}kt)`
+                );
+            }
 
+            // Schedule transmission with proper delay between ships
             setTimeout(() => {
-                // Delay between ships
-            }, i * 500);
+                // Generate AIS message with updated position
+                const aisMessage = this.generateAISMessage(ship, channel);
+                
+                // Log the actual values being transmitted with timestamp
+                const timestamp = new Date().toISOString().substr(11, 12); // HH:MM:SS.mmm
+                this.logMessage('transmissionLog', 
+                    `${timestamp} TX ${ship.name}: Lat=${ship.lat.toFixed(6)}, Lon=${ship.lon.toFixed(6)}, ` +
+                    `COG=${ship.course.toFixed(1)}°, SOG=${ship.speed}kt, HDG=${ship.heading}°, Status=${ship.status}`
+                );
+                
+                // Send to GNU Radio
+                this.sendAISMessage(aisMessage, ship.name);
+            }, i * 500); // Delay between ships to avoid message collisions
         });
 
+        // Save updated ship positions to storage
+        this.saveShipsToStorage();
+        
         this.updateUI();
         
         // Update map if initialized
@@ -701,14 +725,20 @@ class SIRENWebApp {
             if (ship.current_waypoint < ship.waypoints.length) {
                 // Set course to next waypoint
                 const nextWaypoint = ship.waypoints[ship.current_waypoint];
-                ship.course = this.calculateBearing(ship.lat, ship.lon, nextWaypoint[0], nextWaypoint[1]);
-                ship.heading = ship.course;
+                const newCourse = this.calculateBearing(ship.lat, ship.lon, nextWaypoint[0], nextWaypoint[1]);
+                ship.course = newCourse;
+                ship.heading = newCourse; // Keep heading synchronized with course
                 console.log(`${ship.name}: Set course to waypoint ${ship.current_waypoint + 1}: ${ship.course.toFixed(1)}°`);
             } else {
                 console.log(`${ship.name}: All waypoints reached`);
                 ship.current_waypoint = -1; // Stop navigation
                 return;
             }
+        } else {
+            // Update course continuously to point toward current waypoint
+            const currentCourse = this.calculateBearing(ship.lat, ship.lon, currentWaypoint[0], currentWaypoint[1]);
+            ship.course = currentCourse;
+            ship.heading = currentCourse; // Keep heading synchronized
         }
 
         // Move ship toward current waypoint
@@ -757,19 +787,29 @@ class SIRENWebApp {
     // =====================================
 
     generateAISMessage(ship, channel = 'A') {
+        // Ensure all values are within valid ranges and capture current state
+        const lat = Math.max(-90, Math.min(90, ship.lat));
+        const lon = Math.max(-180, Math.min(180, ship.lon));
+        const course = Math.max(0, Math.min(359.9, ship.course || 0));
+        const speed = Math.max(0, Math.min(102.2, ship.speed || 0));
+        const heading = Math.max(0, Math.min(359, ship.heading || course));
+        
+        // Log the exact values being encoded (for debugging)
+        console.log(`Generating AIS for ${ship.name}: lat=${lat}, lon=${lon}, course=${course}, speed=${speed}, heading=${heading}`);
+        
         // Create AIS Type 1 Position Report
         const fields = {
             msg_type: 1,
             repeat: 0,
             mmsi: ship.mmsi,
-            nav_status: ship.status,
-            rot: ship.turn,
-            sog: ship.speed,
-            accuracy: ship.accuracy,
-            lon: ship.lon,
-            lat: ship.lat,
-            cog: ship.course,
-            hdg: ship.heading,
+            nav_status: ship.status || 0,
+            rot: ship.turn || 0,
+            sog: speed,
+            accuracy: ship.accuracy || 1,
+            lon: lon,
+            lat: lat,
+            cog: course,
+            hdg: heading,
             timestamp: new Date().getSeconds() % 60
         };
 
@@ -795,19 +835,21 @@ class SIRENWebApp {
         // Navigation status (4 bits)
         bits += this.toBits(fields.nav_status, 4);
         // Rate of turn (8 bits)
-        bits += this.toBits(fields.rot + 128, 8);
-        // Speed over ground (10 bits)
+        bits += this.toBits(Math.round(fields.rot) + 128, 8);
+        // Speed over ground (10 bits) - in 0.1 knot resolution
         bits += this.toBits(Math.round(fields.sog * 10), 10);
         // Position accuracy (1 bit)
         bits += this.toBits(fields.accuracy, 1);
-        // Longitude (28 bits)
-        bits += this.toBits(Math.round(fields.lon * 600000), 28);
-        // Latitude (27 bits)
-        bits += this.toBits(Math.round(fields.lat * 600000), 27);
-        // Course over ground (12 bits)
+        // Longitude (28 bits) - in 1/600000 minute resolution
+        const lonValue = Math.round(fields.lon * 600000);
+        bits += this.toBits(lonValue, 28);
+        // Latitude (27 bits) - in 1/600000 minute resolution
+        const latValue = Math.round(fields.lat * 600000);
+        bits += this.toBits(latValue, 27);
+        // Course over ground (12 bits) - in 0.1 degree resolution
         bits += this.toBits(Math.round(fields.cog * 10), 12);
-        // True heading (9 bits)
-        bits += this.toBits(fields.hdg, 9);
+        // True heading (9 bits) - in 1 degree resolution
+        bits += this.toBits(Math.round(fields.hdg), 9);
         // Time stamp (6 bits)
         bits += this.toBits(fields.timestamp, 6);
         // Regional (4 bits)
@@ -927,12 +969,13 @@ class SIRENWebApp {
             document.getElementById('messageCount').textContent = this.simulation.messageCount;
             document.getElementById('totalPackets').textContent = this.simulation.messageCount;
             
-            this.logMessage('transmissionLog', `Transmitted: ${shipName} (${nmea})`);
+            // Log the complete NMEA sentence for debugging
+            this.logMessage('transmissionLog', `${shipName}: ${nmea}`);
             return true;
 
         } catch (error) {
             console.error('Failed to send AIS message:', error);
-            this.logMessage('transmissionLog', `Error: ${error.message}`);
+            this.logMessage('transmissionLog', `Error sending ${shipName}: ${error.message}`);
             return false;
         }
     }
